@@ -1,0 +1,54 @@
+name: Portable build verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'projects/**'
+      - '.github/workflows/portable-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  build-projects:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: router-ia
+            path: projects/router-ia/Router-IA-Privado
+          - name: programacion-en-espanol
+            path: projects/programacion-en-espanol/Programacion-en-espanol
+    defaults:
+      run:
+        working-directory: ${{ matrix.path }}
+    env:
+      PORT: '8080'
+      BASE_PATH: '/'
+      NODE_ENV: production
+      CLERK_PROXY_ENABLED: 'false'
+      VITE_CLERK_PUBLISHABLE_KEY: 'pk_test_portable_build_placeholder'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.26.1 --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Build
+        run: pnpm run build
+
+  router-docker:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Router portable container
+        run: |
+          docker build \
+            -t corex-router-portable:ci \
+            projects/router-ia/Router-IA-Privado
