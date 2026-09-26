@@ -1,0 +1,134 @@
+name: Detach projects from Replit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/detach-replit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  detach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.26.1 --activate
+
+      - name: Remove Replit dependencies and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROUTER='projects/router-ia/Router-IA-Privado'
+          PROG='projects/programacion-en-espanol/Programacion-en-espanol'
+
+          for ROOT in "$ROUTER" "$PROG"; do
+            cd "$GITHUB_WORKSPACE/$ROOT"
+            pnpm remove @replit/connectors-sdk || true
+            rm -f .replit .replitignore
+            find . -type d -name '.replit-artifact' -prune -exec rm -rf {} + || true
+
+            python3 - <<'PY'
+from pathlib import Path
+import re
+
+root = Path('.')
+for cfg in root.rglob('vite.config.ts'):
+    text = cfg.read_text()
+    original = text
+    text = re.sub(r"\nimport runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';\n", "\n", text)
+    text = re.sub(r"\n\s*runtimeErrorOverlay\(\),", "", text)
+    text = re.sub(
+        r"\n\s*\.\.\.\(process\.env\.NODE_ENV !== 'production' &&\s*process\.env\.REPL_ID !== undefined\s*\? \[runtimeErrorOverlay\(\)\]\s*:\s*\[\]\),",
+        "",
+        text,
+        flags=re.S,
+    )
+    text = re.sub(
+        r"\n\s*\.\.\.\(process\.env\.NODE_ENV !== 'production' &&\s*process\.env\.REPL_ID !== undefined\s*\? \[.*?@replit/vite-plugin-cartographer.*?\]\s*:\s*\[\]\),",
+        "",
+        text,
+        flags=re.S,
+    )
+    text = re.sub(
+        r"\n\s*\.\.\.\(process\.env\.NODE_ENV !== 'production' &&\s*process\.env\.REPL_ID !== undefined\s*\? \[.*?@replit/vite-plugin-dev-banner.*?\]\s*:\s*\[\]\),",
+        "",
+        text,
+        flags=re.S,
+    )
+    if text != original:
+        cfg.write_text(text)
+
+ws = root / 'pnpm-workspace.yaml'
+if ws.exists():
+    lines = ws.read_text().splitlines()
+    cleaned = []
+    skip_replit_comment = False
+    for line in lines:
+        if '@replit/' in line or 'stripe-replit-sync' in line:
+            continue
+        if 'replit uses linux-x64 only' in line.lower():
+            continue
+        if 'Replit packsges' in line:
+            line = line.replace('Replit packsges, ', '')
+        if 'Exclude @replit scoped packages' in line or 'published by Replit' in line:
+            continue
+        cleaned.append(line)
+    ws.write_text('\n'.join(cleaned) + '\n')
+PY
+
+            # Remove any remaining explicit Replit packages from workspace package manifests.
+            while IFS= read -r pkg; do
+              python3 - "$pkg" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+data = json.loads(p.read_text())
+changed = False
+for section in ('dependencies','devDependencies','optionalDependencies'):
+    deps = data.get(section)
+    if not isinstance(deps, dict):
+        continue
+    for key in list(deps):
+        if key.startswith('@replit/'):
+            del deps[key]
+            changed = True
+if changed:
+    p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
+PY
+            done < <(find . -name package.json -not -path '*/node_modules/*')
+
+            pnpm install --lockfile-only
+          done
+
+      - name: Verify no runtime Replit references remain
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RIn --exclude='pnpm-lock.yaml' --exclude-dir='.git' --exclude='*.md' '@replit/\|REPL_ID\|\.replit-artifact' projects/router-ia/Router-IA-Privado projects/programacion-en-espanol/Programacion-en-espanol; then
+            echo 'Replit references still remain in runtime files.' >&2
+            exit 1
+          fi
+
+      - name: Commit detached projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add projects
+          if git diff --cached --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git commit -m 'Detach Router IA and Programacion from Replit'
+          git push
