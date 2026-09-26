@@ -36,26 +36,34 @@ def clean_package_json(path: Path) -> None:
 def clean_vite(path: Path) -> None:
     text = path.read_text()
     original = text
-    text = re.sub("\\nimport runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';\\n", '\n', text)
+
+    text = re.sub(
+        r"\nimport runtimeErrorOverlay from ['\"]@replit/vite-plugin-runtime-error-modal['\"];\n",
+        '\n',
+        text,
+    )
     text = re.sub(r"\n\s*runtimeErrorOverlay\(\),", '', text)
+
+    production_guard = r"process\.env\.NODE_ENV !== ['\"]production['\"] &&\s*process\.env\.REPL_ID !== undefined"
     text = re.sub(
-        r"\n\s*\.\.\.\(process\.env\.NODE_ENV !== 'production' &&\s*process\.env\.REPL_ID !== undefined\s*\? \[runtimeErrorOverlay\(\)\]\s*:\s*\[\]\),",
+        rf"\n\s*\.\.\.\({production_guard}\s*\? \[runtimeErrorOverlay\(\)\]\s*:\s*\[\]\),",
         '',
         text,
         flags=re.S,
     )
     text = re.sub(
-        r"\n\s*\.\.\.\(process\.env\.NODE_ENV !== 'production' &&\s*process\.env\.REPL_ID !== undefined\s*\? \[.*?@replit/vite-plugin-cartographer.*?\]\s*:\s*\[\]\),",
+        rf"\n\s*\.\.\.\({production_guard}\s*\? \[.*?@replit/vite-plugin-cartographer.*?\]\s*:\s*\[\]\),",
         '',
         text,
         flags=re.S,
     )
     text = re.sub(
-        r"\n\s*\.\.\.\(process\.env\.NODE_ENV !== 'production' &&\s*process\.env\.REPL_ID !== undefined\s*\? \[.*?@replit/vite-plugin-dev-banner.*?\]\s*:\s*\[\]\),",
+        rf"\n\s*\.\.\.\({production_guard}\s*\? \[.*?@replit/vite-plugin-dev-banner.*?\]\s*:\s*\[\]\),",
         '',
         text,
         flags=re.S,
     )
+
     if text != original:
         path.write_text(text)
 
