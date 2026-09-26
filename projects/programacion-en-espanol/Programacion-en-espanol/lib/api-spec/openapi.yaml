@@ -1,0 +1,557 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: app-builder
+    description: Natural-language app generation
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /builder/generate:
+    post:
+      operationId: generateAppBlueprint
+      tags: [app-builder]
+      summary: Generate or revise an app blueprint from a conversational request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppBuilderInput"
+      responses:
+        "200":
+          description: Generated app blueprint and conversational response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBuilderResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: App generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/activate-module:
+    post:
+      operationId: activateBuilderModule
+      tags: [app-builder]
+      summary: Activate a user-approved, prebuilt app module
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppBuilderActivationInput"
+      responses:
+        "200":
+          description: Validated module activation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBuilderActivationResult"
+        "400":
+          description: Invalid or unapproved module
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Module activation failed unexpectedly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/reference-url:
+    post:
+      operationId: extractWebReference
+      tags: [app-builder]
+      summary: Extract visible text from a public webpage as an app reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebReferenceInput"
+      responses:
+        "200":
+          description: Page title and visible text suitable for use as a reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebReference"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: The public webpage could not be safely fetched or parsed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/providers:
+    get:
+      operationId: listBuilderProviders
+      tags: [app-builder]
+      summary: List configured providers and current reliability
+      responses:
+        "200":
+          description: Provider configuration and runtime health; secret values are never returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProviders"
+  /builder/providers/test:
+    post:
+      operationId: testBuilderProviders
+      tags: [app-builder]
+      summary: Test one provider or all providers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuilderProviderTestInput"
+      responses:
+        "200":
+          description: Test results and updated reliability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProviderTestOutput"
+        "403":
+          description: Provider tests are restricted to the Replit development workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    AppBuilderTurn:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          maxLength: 1600
+      required: [role, content]
+    WebReferenceInput:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+      required: [url]
+    WebReference:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        title:
+          type: string
+          maxLength: 160
+        extractedText:
+          type: string
+          maxLength: 12000
+      required: [url, title, extractedText]
+    AppBuilderReference:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        kind:
+          type: string
+          enum: [image, document, code, archive, apk]
+        extractedText:
+          type: string
+          maxLength: 12000
+        imageDataUrl:
+          type: string
+          maxLength: 1200000
+          pattern: "^data:image/(jpeg|png|webp);base64,"
+      required: [name, kind, extractedText]
+    AppBuilderItem:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 64
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 240
+        value:
+          type: string
+          maxLength: 80
+        checked:
+          type: boolean
+      required: [id, title, description, value, checked]
+    AppBuilderSection:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 64
+        type:
+          type: string
+          enum: [stats, list, features, form, progress]
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 240
+        actionLabel:
+          type: string
+          maxLength: 48
+        items:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/AppBuilderItem"
+      required: [id, type, title, description, actionLabel, items]
+    AppBuilderKind:
+      type: string
+      enum: [tasks, habits, expenses, prototype]
+    AppBuilderModuleId:
+      type: string
+      enum: [tasks-v1, habits-v1, expenses-v1]
+    AppBuilderExpansionOption:
+      type: object
+      properties:
+        moduleId:
+          $ref: "#/components/schemas/AppBuilderModuleId"
+        appKind:
+          type: string
+          enum: [tasks, habits, expenses]
+        name:
+          type: string
+          maxLength: 80
+        version:
+          type: string
+          maxLength: 24
+        summary:
+          type: string
+          maxLength: 240
+        capabilities:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 100
+        limitations:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 140
+        reason:
+          type: string
+          maxLength: 220
+        recommended:
+          type: boolean
+        runtimeCost:
+          type: integer
+          enum: [0]
+      required: [moduleId, appKind, name, version, summary, capabilities, limitations, reason, recommended, runtimeCost]
+    AppBuilderExpansionProposal:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [not-needed, approval-required, unavailable]
+        message:
+          type: string
+          maxLength: 400
+        options:
+          type: array
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/AppBuilderExpansionOption"
+      required: [status, message, options]
+    AppBlueprint:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 80
+        subtitle:
+          type: string
+          maxLength: 140
+        description:
+          type: string
+          maxLength: 240
+        accentColor:
+          type: string
+          enum: [violet, ocean, mint, amber]
+        appKind:
+          $ref: "#/components/schemas/AppBuilderKind"
+        sections:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AppBuilderSection"
+      required: [title, subtitle, description, accentColor, appKind, sections]
+    AppBuilderInput:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 3
+          maxLength: 1600
+        previousBlueprint:
+          anyOf:
+            - $ref: "#/components/schemas/AppBlueprint"
+            - type: "null"
+        history:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/AppBuilderTurn"
+        referenceFiles:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AppBuilderReference"
+        providerPreference:
+          type: string
+          pattern: "^(auto|[a-z][a-z0-9-]{1,59})$"
+      required: [prompt, previousBlueprint, history, referenceFiles]
+    AppBuilderTask:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 80
+        title:
+          type: string
+          maxLength: 140
+        capability:
+          type: string
+          enum: [planning, structured-output]
+        providerId:
+          type: string
+          maxLength: 60
+        providerName:
+          type: string
+          maxLength: 80
+        attempts:
+          type: integer
+          minimum: 1
+          maximum: 5
+      required: [id, title, capability, providerId, providerName, attempts]
+    AppBuilderResult:
+      type: object
+      properties:
+        assistantMessage:
+          type: string
+          maxLength: 600
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        expansionProposal:
+          $ref: "#/components/schemas/AppBuilderExpansionProposal"
+        tasks:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/AppBuilderTask"
+      required: [assistantMessage, blueprint, expansionProposal, tasks]
+    AppBuilderActivationInput:
+      type: object
+      properties:
+        moduleId:
+          $ref: "#/components/schemas/AppBuilderModuleId"
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        expansionProposal:
+          $ref: "#/components/schemas/AppBuilderExpansionProposal"
+      required: [moduleId, blueprint, expansionProposal]
+    AppBuilderActivationResult:
+      type: object
+      properties:
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        module:
+          $ref: "#/components/schemas/AppBuilderExpansionOption"
+      required: [blueprint, module]
+    BuilderProviderCapability:
+      type: string
+      enum: [text, json, planning, vision]
+    BuilderProvider:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 60
+        name:
+          type: string
+          maxLength: 80
+        configured:
+          type: boolean
+        model:
+          type: string
+          maxLength: 120
+        secretName:
+          type: string
+          maxLength: 80
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuilderProviderCapability"
+        reliability:
+          type: integer
+          minimum: 0
+          maximum: 100
+        successes:
+          type: integer
+          minimum: 0
+        failures:
+          type: integer
+          minimum: 0
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+        suspendedUntil:
+          type: ["string", "null"]
+          format: date-time
+        lastLatencyMs:
+          type: ["integer", "null"]
+          minimum: 0
+        lastError:
+          type: ["string", "null"]
+          maxLength: 240
+        lastTestAt:
+          type: ["string", "null"]
+          format: date-time
+      required:
+        - id
+        - name
+        - configured
+        - model
+        - secretName
+        - capabilities
+        - reliability
+        - successes
+        - failures
+        - consecutiveFailures
+        - suspendedUntil
+        - lastLatencyMs
+        - lastError
+        - lastTestAt
+    BuilderProviders:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuilderProvider"
+        healthLifetime:
+          type: string
+          enum: [server-session]
+      required: [providers, healthLifetime]
+    BuilderProviderTestInput:
+      type: object
+      properties:
+        providerId:
+          type: string
+          pattern: "^(all|[a-z][a-z0-9-]{1,59})$"
+      required: [providerId]
+    BuilderProviderTestResult:
+      type: object
+      properties:
+        providerId:
+          type: string
+          maxLength: 60
+        name:
+          type: string
+          maxLength: 80
+        status:
+          type: string
+          enum: [passed, failed, missing-key, suspended]
+        latencyMs:
+          type: ["integer", "null"]
+          minimum: 0
+        reliability:
+          type: integer
+          minimum: 0
+          maximum: 100
+        testedCapabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuilderProviderCapability"
+        suspendedUntil:
+          type: ["string", "null"]
+          format: date-time
+        error:
+          type: ["string", "null"]
+          maxLength: 240
+      required:
+        - providerId
+        - name
+        - status
+        - latencyMs
+        - reliability
+        - testedCapabilities
+        - suspendedUntil
+        - error
+    BuilderProviderTestOutput:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuilderProviderTestResult"
+      required: [results]
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+          maxLength: 240
+      required: [error]
+

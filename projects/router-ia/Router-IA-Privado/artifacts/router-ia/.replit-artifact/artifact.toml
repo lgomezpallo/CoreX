@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/router-ia/"
+title = "Router IA"
+description = "Un PWA privado para gestionar claves de proveedores de IA, comprobar conexiones y ofrecer una API común a las aplicaciones personales del usuario."
+version = "1.0.0"
+id = "artifacts/router-ia"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/router-ia/" ]
+localPort = 24857
+
+[services.development]
+run = "pnpm --filter @workspace/router-ia run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/router-ia", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/router-ia/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24857"
+BASE_PATH = "/router-ia/"

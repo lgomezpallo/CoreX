@@ -1,0 +1,4 @@
+- [Python in browser workers](python-worker-runtime.md) — Load Pyodide dynamically in the module worker to avoid Vite's Node shims and chunking failures.
+- [Provider output and capability checks](provider-smoke-test-budgets.md) — reasoning markup, realistic limits, and end-to-end scope checks matter beyond valid JSON.
+- [Self-contained generated HTML](standalone-runtime.md) — test bundled function source for build-tool helpers before embedding it in a downloaded page.
+- [Scoped pnpm installs](scoped-pnpm-installs.md) — Add artifact dependencies with a workspace filter; root-level install helpers can target the workspace root and fail.
