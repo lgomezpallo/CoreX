@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'router-ia-export 20260927.zip'
+      - '.github/workflows/compare-router-export.yml'
 
 permissions:
   contents: read
