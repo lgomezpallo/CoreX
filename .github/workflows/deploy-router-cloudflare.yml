@@ -1,0 +1,102 @@
+name: Deploy Router IA to Cloudflare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+      VITE_CLERK_PROXY_URL: ${{ secrets.VITE_CLERK_PROXY_URL }}
+      CLERK_PROXY_ENABLED: 'false'
+      PORT: '8080'
+      NODE_ENV: production
+      BASE_PATH: /
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract Router export
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/router-export
+          mkdir -p /tmp/router-export
+          unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
+          test -f /tmp/router-export/package.json
+          test -f /tmp/router-export/pnpm-lock.yaml
+          test -f /tmp/router-export/wrangler.jsonc
+
+      - name: Check required deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            SUPABASE_DATABASE_URL \
+            SESSION_SECRET \
+            CLERK_PUBLISHABLE_KEY \
+            CLERK_SECRET_KEY \
+            VITE_CLERK_PUBLISHABLE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing GitHub Actions secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        working-directory: /tmp/router-export
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: /tmp/router-export
+        run: pnpm run typecheck
+
+      - name: Build
+        working-directory: /tmp/router-export
+        run: pnpm run build
+
+      - name: Upload Router runtime secrets to Cloudflare
+        working-directory: /tmp/router-export
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/router-secrets.json <<EOF
+          {
+            "SUPABASE_DATABASE_URL": ${SUPABASE_DATABASE_URL@Q},
+            "SESSION_SECRET": ${SESSION_SECRET@Q},
+            "CLERK_PUBLISHABLE_KEY": ${CLERK_PUBLISHABLE_KEY@Q},
+            "CLERK_SECRET_KEY": ${CLERK_SECRET_KEY@Q},
+            "VITE_CLERK_PUBLISHABLE_KEY": ${VITE_CLERK_PUBLISHABLE_KEY@Q},
+            "VITE_CLERK_PROXY_URL": ${VITE_CLERK_PROXY_URL@Q}
+          }
+          EOF
+          node -e 'const fs=require("fs"); const p="/tmp/router-secrets.json"; const t=fs.readFileSync(p,"utf8"); fs.writeFileSync(p, t.replace(/'/g,"\""));'
+          pnpm exec wrangler secret bulk /tmp/router-secrets.json --config wrangler.jsonc
+          rm -f /tmp/router-secrets.json
+
+      - name: Deploy Router IA
+        working-directory: /tmp/router-export
+        run: pnpm run deploy:cloudflare
