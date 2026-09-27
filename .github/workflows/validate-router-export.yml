@@ -25,6 +25,15 @@ jobs:
           test -f /tmp/router-export/pnpm-lock.yaml
           test -f /tmp/router-export/package.json
 
+      - name: Show environment template
+        working-directory: /tmp/router-export
+        run: |
+          echo '=== .env.example ==='
+          cat .env.example
+          echo
+          echo '=== wrangler.jsonc ==='
+          cat wrangler.jsonc
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.26.1
