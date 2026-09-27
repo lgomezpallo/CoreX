@@ -1,0 +1,59 @@
+name: Validate Router export
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/validate-router-export.yml'
+      - 'router-ia-export 20260927.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Extract export
+        run: |
+          rm -rf /tmp/router-export
+          mkdir -p /tmp/router-export
+          unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
+      - name: Install dependencies
+        working-directory: /tmp/router-export
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        working-directory: /tmp/router-export
+        env:
+          PORT: 8080
+          BASE_PATH: /
+          NODE_ENV: production
+          CLERK_PROXY_ENABLED: 'false'
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_portable_build_placeholder
+        run: pnpm run typecheck
+      - name: Normal build
+        working-directory: /tmp/router-export
+        env:
+          PORT: 8080
+          BASE_PATH: /
+          NODE_ENV: production
+          CLERK_PROXY_ENABLED: 'false'
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_portable_build_placeholder
+        run: pnpm run build
+      - name: Cloudflare dry run
+        working-directory: /tmp/router-export
+        env:
+          PORT: 8080
+          BASE_PATH: /
+          NODE_ENV: production
+          CLERK_PROXY_ENABLED: 'false'
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_portable_build_placeholder
+        run: pnpm run build:cloudflare
