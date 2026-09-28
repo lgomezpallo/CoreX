@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 ROOT = Path('/tmp/router-export')
 routes = ROOT / 'artifacts/api-server/src/routes/ai-router.ts'
@@ -8,7 +7,6 @@ radar = ROOT / 'artifacts/router-ia/src/pages/radar.tsx'
 
 # ---------------------------------------------------------------------------
 # 1) OpenRouter validation belongs in the normalized provider HTTP layer.
-#    This guarantees JSON-safe ProviderRequestError handling in Workers.
 # ---------------------------------------------------------------------------
 text = ai.read_text()
 helper_marker = 'export async function listProviderAccountModels(provider: ProviderConfig, forceRefresh = false): Promise<ProviderCatalogModel[]> {'
@@ -76,11 +74,10 @@ if old_branch in text and 'models = await listOpenRouterFreeModels(provider);' n
 ai.write_text(text)
 
 # ---------------------------------------------------------------------------
-# 2) Route: import normalized validator and remove the direct fetch validator.
+# 2) Route: use normalized OpenRouter validator.
 # ---------------------------------------------------------------------------
 text = routes.read_text()
 if 'validateOpenRouterKey,' not in text:
-    # Insert beside an existing provider helper imported from ai-router.
     for marker in ['  runProviderChat,\n', '  ProviderRequestError,\n']:
         if marker in text:
             text = text.replace(marker, marker + '  validateOpenRouterKey,\n', 1)
@@ -88,10 +85,9 @@ if 'validateOpenRouterKey,' not in text:
     else:
         raise SystemExit('ai-router import marker not found')
 
-# Remove whichever previous OpenRouter validation block is present.
+# Remove any previous OpenRouter validation block before the DB lookup.
 start = text.find('  if (\n    parsed.data.kind === "openai-compatible" &&\n    baseUrl?.includes("openrouter.ai/api/v1")\n  ) {')
 if start >= 0:
-    # Block ends immediately before the existing-provider lookup.
     next_marker = '  const [existing] = await db\n'
     end = text.find(next_marker, start)
     if end < 0:
@@ -103,7 +99,8 @@ marker = '''  const [existing] = await db
     .from(aiProvidersTable)
     .where(eq(aiProvidersTable.userId, userId))
     .limit(1);'''
-validation = r'''  if (
+validation = r'''  providerCreateStage = "openrouter_validation";
+  if (
     parsed.data.kind === "openai-compatible" &&
     baseUrl?.includes("openrouter.ai/api/v1")
   ) {
@@ -122,14 +119,14 @@ validation = r'''  if (
     }
   }
 
+  providerCreateStage = "db_lookup";
 '''
 if marker not in text:
     raise SystemExit('Provider create marker not found')
 text = text.replace(marker, validation + marker, 1)
 
 # ---------------------------------------------------------------------------
-# 3) Never let POST /providers fall through to Express' HTML error handler.
-#    Wrap the transaction + response section in a JSON-safe catch.
+# 3) Existing save section: keep its JSON-safe catch.
 # ---------------------------------------------------------------------------
 start_marker = '  const created = await db.transaction(async (tx) => {'
 end_marker = '''  res.setHeader("Cache-Control", "no-store");
@@ -151,17 +148,82 @@ if 'Could not save provider' not in original:
   }'''
     text = text[:start] + wrapped + text[end:]
 
+# ---------------------------------------------------------------------------
+# 4) Whole-handler JSON firewall + safe stage tracing.
+#    Nothing in POST /providers may fall through to Express HTML.
+# ---------------------------------------------------------------------------
+route_start = text.find('router.post("/providers", async (req, res): Promise<void> => {')
+route_end_marker = '\n});\n\nrouter.patch("/providers/:id"'
+route_end = text.find(route_end_marker, route_start)
+if route_start < 0 or route_end < 0:
+    raise SystemExit('Could not locate complete POST /providers handler')
+
+handler_line_end = text.find('\n', route_start) + 1
+body = text[handler_line_end:route_end]
+
+if 'let providerCreateStage = "auth";' not in body:
+    # Add stage transitions at known safe boundaries.
+    body = body.replace(
+        '  const userId = await requireClerkUser(req, res);',
+        '  providerCreateStage = "auth";\n  const userId = await requireClerkUser(req, res);',
+        1,
+    )
+    body = body.replace(
+        '  const parsed = CreateProviderBody.safeParse(req.body);',
+        '  providerCreateStage = "parse";\n  const parsed = CreateProviderBody.safeParse(req.body);',
+        1,
+    )
+    body = body.replace(
+        '  const apiKey =\n',
+        '  providerCreateStage = "credentials";\n  const apiKey =\n',
+        1,
+    )
+    body = body.replace(
+        '  let baseUrl: string | null = null;',
+        '  providerCreateStage = "base_url";\n  let baseUrl: string | null = null;',
+        1,
+    )
+    body = body.replace(
+        '  const encrypted = encryptApiKey(apiKey);',
+        '  providerCreateStage = "encrypt";\n  const encrypted = encryptApiKey(apiKey);',
+        1,
+    )
+    # If the exact encrypt line differs, stage still advances to save before transaction.
+    body = body.replace(
+        '  try {\n    const created = await db.transaction',
+        '  providerCreateStage = "save";\n  try {\n    const created = await db.transaction',
+        1,
+    )
+
+    indented_body = '\n'.join('  ' + line if line else line for line in body.splitlines())
+    firewall = '''  let providerCreateStage = "auth";
+  try {
+''' + indented_body + '''
+  } catch (error) {
+    try {
+      req.log?.error?.({ err: error, stage: providerCreateStage }, "Provider create failed");
+    } catch {}
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: `No se pudo conectar el proveedor. Etapa: ${providerCreateStage}.`,
+        stage: providerCreateStage,
+      });
+    }
+    return;
+  }'''
+    text = text[:handler_line_end] + firewall + text[route_end:]
+
 routes.write_text(text)
 
 # ---------------------------------------------------------------------------
-# 4) Frontend: surface JSON detail, but never dump an upstream HTML document.
+# 5) Frontend: surface JSON detail, never dump HTML.
 # ---------------------------------------------------------------------------
 text = radar.read_text()
 old_error = "        onError: () => setError('No se pudo conectar. Revisá la Key y los datos de la cuenta.'),"
 new_error = r'''        onError: (mutationError: unknown) => {
           const err = mutationError as {
-            response?: { data?: { error?: string } };
-            data?: { error?: string };
+            response?: { data?: { error?: string; stage?: string } };
+            data?: { error?: string; stage?: string };
             message?: string;
           };
           const raw = err.response?.data?.error || err.data?.error || err.message || '';
@@ -173,7 +235,6 @@ new_error = r'''        onError: (mutationError: unknown) => {
 if old_error in text:
     text = text.replace(old_error, new_error, 1)
 elif 'const raw = err.response?.data?.error' not in text:
-    # Upgrade the earlier detailed handler.
     text = text.replace(
         "          const detail = err.response?.data?.error || err.data?.error || err.message;\n          setError(detail || 'No se pudo conectar. Revisá la Key y los datos de la cuenta.');",
         "          const raw = err.response?.data?.error || err.data?.error || err.message || '';\n          const detail = /<!doctype|<html/i.test(raw)\n            ? 'Router recibió una respuesta web inválida al conectar el proveedor.'\n            : raw;\n          setError(detail || 'No se pudo conectar. Revisá la Key y los datos de la cuenta.');",
@@ -191,9 +252,12 @@ checks = {
     'Direct OpenRouter key fetch removed from route': 'fetch("https://openrouter.ai/api/v1/key"' not in rt,
     'OpenRouter free catalog': 'listOpenRouterFreeModels' in at,
     'Provider create JSON catch': 'Could not save provider' in rt and 'El proveedor no pudo guardarse.' in rt,
+    'Whole provider handler firewall': 'let providerCreateStage = "auth";' in rt and 'Etapa: ${providerCreateStage}' in rt,
+    'Stage OpenRouter validation': 'providerCreateStage = "openrouter_validation";' in rt,
+    'Stage DB lookup': 'providerCreateStage = "db_lookup";' in rt,
     'Radar HTML guard': 'Router recibió una respuesta web inválida' in ui,
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
-    raise SystemExit('OpenRouter hardening incomplete: ' + ', '.join(failed))
-print('OpenRouter onboarding hardened: normalized validation, free catalog, JSON-only provider save errors')
+    raise SystemExit('OpenRouter tracing patch incomplete: ' + ', '.join(failed))
+print('OpenRouter onboarding traced safely: full JSON firewall + stage diagnostics')
