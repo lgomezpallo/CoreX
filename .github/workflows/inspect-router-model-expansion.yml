@@ -1,0 +1,29 @@
+name: Inspect Router Model Expansion Points
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-router-model-expansion.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rm -rf /tmp/router-export && mkdir -p /tmp/router-export
+          unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
+      - working-directory: /tmp/router-export
+        run: |
+          echo '=== INTELLIGENT ROUTER ==='
+          sed -n '1,420p' artifacts/api-server/src/lib/intelligent-router.ts
+          echo '=== RADAR UI ==='
+          sed -n '210,620p' artifacts/router-ia/src/pages/radar.tsx
+          echo '=== RADAR API SCHEMAS ==='
+          grep -RniE 'RadarModel|RadarCatalog|ListRadarModelsResponse|ProviderResponse|ProviderInput' lib/api-zod lib/api-client-react 2>/dev/null | head -220 || true
+          echo '=== PROVIDER FORM ==='
+          sed -n '360,590p' artifacts/router-ia/src/App.tsx
