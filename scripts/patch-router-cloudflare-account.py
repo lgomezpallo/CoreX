@@ -55,6 +55,27 @@ for rel in [
         text = text.replace('  GROQ: "groq",', '  GROQ: "groq",\n  CLOUDFLARE: "cloudflare",')
     p.write_text(text)
 
+# The model autocomplete uses exhaustive Record<ProviderInputKind, ...> maps.
+# Cloudflare does not need manual model suggestions because its catalog is automatic,
+# but the maps still need an explicit entry for TypeScript exhaustiveness.
+p = ROOT / 'artifacts/router-ia/src/components/model-autocomplete.tsx'
+if p.exists():
+    text = p.read_text()
+    if "cloudflare: []" not in text:
+        text = text.replace("  groq: [],", "  groq: [],\n  cloudflare: [],", 1)
+    if "cloudflare: 'Catálogo automático de Workers AI'" not in text:
+        text = text.replace(
+            "  groq: 'Selecciona un modelo desde el catálogo de Groq',",
+            "  groq: 'Selecciona un modelo desde el catálogo de Groq',\n  cloudflare: 'Catálogo automático de Workers AI',",
+            1,
+        )
+        text = text.replace(
+            '  groq: "Selecciona un modelo desde el catálogo de Groq",',
+            '  groq: "Selecciona un modelo desde el catálogo de Groq",\n  cloudflare: "Catálogo automático de Workers AI",',
+            1,
+        )
+    p.write_text(text)
+
 # Backend adapter: account credential -> dynamic Workers AI catalog -> automatic text model.
 p = ROOT / 'artifacts/api-server/src/lib/ai-router.ts'
 text = p.read_text()
