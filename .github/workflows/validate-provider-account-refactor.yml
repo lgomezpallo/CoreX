@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/patch-router-provider-accounts.py'
+      - 'scripts/fix-provider-account-ui.py'
       - '.github/workflows/validate-provider-account-refactor.yml'
 
 permissions:
@@ -27,6 +28,7 @@ jobs:
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/scripts/patch-router-cloudflare-account.py"
           python3 "$GITHUB_WORKSPACE/scripts/patch-router-provider-accounts.py"
+          python3 "$GITHUB_WORKSPACE/scripts/fix-provider-account-ui.py"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.26.1
