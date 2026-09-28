@@ -53,9 +53,11 @@ jobs:
           print('Hyperdrive placeholder removed; Supabase will use SUPABASE_DATABASE_URL')
           PY
 
-      - name: Use direct Supabase Cloudflare adapter
+      - name: Use Workers-safe Express adapter and logging
         working-directory: /tmp/router-export
         run: |
+          set -euo pipefail
+
           cat > artifacts/api-server/src/cloudflare.ts <<'TS'
           import { httpServerHandler } from "cloudflare:node";
           import app from "./app";
@@ -65,6 +67,57 @@ jobs:
 
           export default httpServerHandler({ port });
           TS
+
+          cat > artifacts/api-server/src/lib/logger.ts <<'TS'
+          type LogArgs = unknown[];
+
+          function log(method: "debug" | "info" | "warn" | "error", args: LogArgs): void {
+            console[method](...args);
+          }
+
+          export const logger = {
+            trace: (...args: LogArgs) => log("debug", args),
+            debug: (...args: LogArgs) => log("debug", args),
+            info: (...args: LogArgs) => log("info", args),
+            warn: (...args: LogArgs) => log("warn", args),
+            error: (...args: LogArgs) => log("error", args),
+            fatal: (...args: LogArgs) => log("error", args),
+            child: () => logger,
+          };
+          TS
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('artifacts/api-server/src/app.ts')
+          text = p.read_text()
+          text = text.replace('import pinoHttp from "pino-http";\n', '')
+
+          marker = 'app.use(\n  pinoHttp({'
+          if marker in text:
+              start = text.index(marker)
+              end_marker = 'app.use(CLERK_PROXY_PATH'
+              end = text.index(end_marker, start)
+              replacement = '''app.use((req, _res, next) => {\n  logger.info({ method: req.method, url: req.url?.split("?")[0] }, "http request");\n  next();\n});\n\napp.get("/__cloudflare_preflight", (_req, res) => {\n  res.json({ status: "ok" });\n});\n\n'''
+              text = text[:start] + replacement + text[end:]
+          else:
+              raise SystemExit('Expected pino-http middleware block not found')
+
+          p.write_text(text)
+          print('pino-http removed; Workers-safe logger and preflight route installed')
+          PY
+
+      - name: Static Cloudflare compatibility scan
+        working-directory: /tmp/router-export
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RniE 'REPLACE_WITH_HYPERDRIVE_CONFIG_ID|pino-http|from ["'"']pino["'"']|handleAsNodeRequest' \
+            artifacts/api-server/src lib --include='*.ts' --include='*.tsx'; then
+            echo 'Cloudflare-incompatible runtime reference still present'
+            exit 1
+          fi
+          echo 'Static compatibility scan OK'
 
       - name: Check required deployment secrets
         shell: bash
@@ -108,6 +161,69 @@ jobs:
         working-directory: /tmp/router-export
         run: pnpm run build
 
+      - name: Cloudflare dry run
+        working-directory: /tmp/router-export
+        run: pnpm run build:cloudflare
+
+      - name: Local Workers runtime smoke test
+        working-directory: /tmp/router-export
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          names = [
+              'SUPABASE_DATABASE_URL',
+              'SESSION_SECRET',
+              'CLERK_PUBLISHABLE_KEY',
+              'CLERK_SECRET_KEY',
+              'VITE_CLERK_PUBLISHABLE_KEY',
+          ]
+          with open('.dev.vars', 'w') as f:
+              for name in names:
+                  f.write(f'{name}={json.dumps(os.environ[name])}\n')
+          PY
+
+          pnpm exec wrangler dev --local --port 8787 --config wrangler.jsonc > /tmp/router-wrangler-dev.log 2>&1 &
+          WRANGLER_PID=$!
+          cleanup() {
+            kill "$WRANGLER_PID" 2>/dev/null || true
+            rm -f .dev.vars
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for i in $(seq 1 40); do
+            if ! kill -0 "$WRANGLER_PID" 2>/dev/null; then
+              echo 'Wrangler local runtime exited unexpectedly'
+              cat /tmp/router-wrangler-dev.log
+              exit 1
+            fi
+            code=$(curl -sS -o /tmp/preflight-body -w '%{http_code}' --max-time 2 http://127.0.0.1:8787/__cloudflare_preflight || true)
+            if [ "$code" = '200' ]; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'Local Worker never became healthy'
+            cat /tmp/router-wrangler-dev.log
+            exit 1
+          fi
+
+          health_code=$(curl -sS -o /tmp/health-body -w '%{http_code}' --max-time 20 http://127.0.0.1:8787/health || true)
+          echo "Local /health HTTP $health_code"
+          cat /tmp/health-body || true
+          echo
+          if [ "$health_code" != '200' ]; then
+            echo 'Local Worker loaded, but Supabase health check is not OK'
+            cat /tmp/router-wrangler-dev.log
+            exit 1
+          fi
+
+          echo 'Local Workers runtime + Supabase health OK'
+
       - name: Upload Router runtime secrets to Cloudflare
         working-directory: /tmp/router-export
         shell: bash
@@ -124,4 +240,31 @@ jobs:
 
       - name: Deploy Router IA
         working-directory: /tmp/router-export
-        run: pnpm run deploy:cloudflare
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm exec wrangler deploy --config wrangler.jsonc 2>&1 | tee /tmp/router-deploy.log
+
+      - name: Verify public Router
+        working-directory: /tmp/router-export
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/router-deploy.log | tail -1 || true)
+          if [ -z "$url" ]; then
+            echo 'Could not determine public workers.dev URL from deployment output'
+            cat /tmp/router-deploy.log
+            exit 1
+          fi
+
+          echo "Public Router URL: $url"
+          root_code=$(curl -sS -o /tmp/public-root -w '%{http_code}' --max-time 20 "$url/")
+          health_code=$(curl -sS -o /tmp/public-health -w '%{http_code}' --max-time 20 "$url/health")
+          echo "Public / HTTP $root_code"
+          echo "Public /health HTTP $health_code"
+          cat /tmp/public-health || true
+          echo
+
+          test "$root_code" = '200'
+          test "$health_code" = '200'
+          echo 'Public Router UI + Supabase health OK'
