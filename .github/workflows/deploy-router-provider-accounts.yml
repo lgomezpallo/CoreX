@@ -7,6 +7,7 @@ on:
       - '.github/workflows/deploy-router-provider-accounts.yml'
       - 'scripts/fix-provider-account-ui.py'
       - 'scripts/fix-radar-provider-discovery-types.py'
+      - 'scripts/expand-radar-free-providers.py'
   workflow_dispatch:
 
 permissions:
@@ -50,6 +51,7 @@ jobs:
           python3 scripts/patch-router-provider-accounts.py
           python3 scripts/fix-provider-account-ui.py
           python3 scripts/fix-radar-provider-discovery-types.py
+          python3 scripts/expand-radar-free-providers.py
           python3 scripts/patch-router-cloudflare-runtime.py
 
       - uses: pnpm/action-setup@v4
