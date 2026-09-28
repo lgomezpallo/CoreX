@@ -125,6 +125,39 @@ jobs:
           print('Workers-safe logger installed with req.log compatibility')
           PY
 
+      - name: Attach Clerk token to browser API requests
+        working-directory: /tmp/router-export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('artifacts/router-ia/src/App.tsx')
+          text = p.read_text()
+
+          import_marker = "  getListRouterAppTokensQueryKey,\n"
+          if import_marker not in text:
+              raise SystemExit('API client import marker not found')
+          if 'setAuthTokenGetter,' not in text:
+              text = text.replace(import_marker, "  setAuthTokenGetter,\n" + import_marker, 1)
+
+          function_marker = 'function ClerkProviderWithRoutes() {'
+          if function_marker not in text:
+              raise SystemExit('ClerkProviderWithRoutes marker not found')
+          if 'function ClerkApiAuthBridge() {' not in text:
+              bridge = '''function ClerkApiAuthBridge() {\n  const { getToken, isLoaded, isSignedIn } = useAuth();\n\n  useEffect(() => {\n    if (!isLoaded || !isSignedIn) {\n      setAuthTokenGetter(null);\n      return;\n    }\n\n    setAuthTokenGetter(() => getToken());\n    return () => setAuthTokenGetter(null);\n  }, [getToken, isLoaded, isSignedIn]);\n\n  return null;\n}\n\n'''
+              text = text.replace(function_marker, bridge + function_marker, 1)
+
+          old = '<QueryClientProvider client={queryClient}><ClerkQueryClientCacheInvalidator /><Router /></QueryClientProvider>'
+          new = '<QueryClientProvider client={queryClient}><ClerkApiAuthBridge /><ClerkQueryClientCacheInvalidator /><Router /></QueryClientProvider>'
+          if old not in text and '<ClerkApiAuthBridge />' not in text:
+              raise SystemExit('QueryClientProvider marker not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('sesión local', 'sesión activa')
+
+          p.write_text(text)
+          print('Clerk bearer token bridge installed for API calls')
+          PY
+
       - name: Static Cloudflare compatibility scan
         working-directory: /tmp/router-export
         run: |
