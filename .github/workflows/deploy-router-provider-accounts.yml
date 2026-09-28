@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/deploy-router-provider-accounts.yml'
+      - 'scripts/fix-provider-account-ui.py'
   workflow_dispatch:
 
 permissions:
