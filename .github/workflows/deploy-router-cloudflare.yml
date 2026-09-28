@@ -41,18 +41,15 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           p = Path('wrangler.jsonc')
           text = p.read_text()
-          block = '''  "hyperdrive": [
-            {
-              "binding": "HYPERDRIVE",
-              "id": "REPLACE_WITH_HYPERDRIVE_CONFIG_ID",
-            },
-          ],
-          '''
-          if block not in text:
-              raise SystemExit('Expected Hyperdrive placeholder block not found')
-          p.write_text(text.replace(block, ''))
+          pattern = r'(?ms)^\s*"hyperdrive"\s*:\s*\[\s*\{\s*"binding"\s*:\s*"HYPERDRIVE"\s*,\s*"id"\s*:\s*"REPLACE_WITH_HYPERDRIVE_CONFIG_ID"\s*,?\s*\}\s*,?\s*\]\s*,?\s*'
+          new_text, count = re.subn(pattern, '', text, count=1)
+          if count != 1:
+              raise SystemExit('Hyperdrive placeholder not found exactly once')
+          p.write_text(new_text)
           print('Hyperdrive placeholder removed; Supabase will use SUPABASE_DATABASE_URL')
           PY
 
