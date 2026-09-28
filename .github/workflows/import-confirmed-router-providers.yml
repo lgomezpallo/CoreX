@@ -67,6 +67,43 @@ jobs:
           import { db, aiProvidersTable, routerOwnerTable } from "@workspace/db";
           import { encryptApiKey, runProviderChat } from "./lib/ai-router";
 
+          async function chooseWorkingModel(
+            kind: "groq" | "openai-compatible",
+            baseUrl: string | null,
+            apiKey: string,
+            candidates: string[],
+            label: string,
+          ): Promise<string> {
+            let lastError = "none";
+            for (const model of candidates.slice(0, 12)) {
+              try {
+                const result = await runProviderChat(
+                  { kind, baseUrl, model, apiKey },
+                  [{ role: "user", content: "Reply only with OK" }],
+                  { temperature: 0, maxTokens: 96 },
+                );
+                if (result.content.trim()) {
+                  console.log(`${label} probe: OK (${model})`);
+                  return model;
+                }
+              } catch (error) {
+                lastError = error instanceof Error ? error.message : String(error);
+                console.log(`${label} candidate skipped: ${model} (${lastError.slice(0, 100)})`);
+              }
+            }
+            throw new Error(`No working ${label} chat model. Last error: ${lastError}`);
+          }
+
+          async function modelIds(url: string, apiKey: string): Promise<string[]> {
+            const response = await fetch(url, {
+              headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+            });
+            if (!response.ok) throw new Error(`Model catalog HTTP ${response.status} for ${url}`);
+            const payload: any = await response.json();
+            const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+            return rows.map((m: any) => String(m?.id ?? m?.name ?? "")).filter(Boolean);
+          }
+
           async function main() {
             const groqKey = process.env.GROQ_API_KEY?.trim();
             const nvidiaKey = process.env.NVIDIA_API_KEY?.trim();
@@ -76,51 +113,35 @@ jobs:
             if (!owner?.userId) throw new Error("Router owner is not initialized. Sign in to Router IA once first.");
             const userId = owner.userId;
 
-            const catalogResponse = await fetch("https://api.groq.com/openai/v1/models", {
-              headers: { authorization: `Bearer ${groqKey}`, accept: "application/json" },
-            });
-            if (!catalogResponse.ok) throw new Error(`Groq catalog HTTP ${catalogResponse.status}`);
-            const catalog: any = await catalogResponse.json();
-            const ids: string[] = Array.isArray(catalog?.data)
-              ? catalog.data.map((m: any) => String(m?.id ?? "")).filter(Boolean)
-              : [];
-            if (!ids.length) throw new Error("Groq returned no models.");
-
-            const preferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-32b"];
-            const candidates = [
-              ...preferred.filter((id) => ids.includes(id)),
-              ...ids.filter((id) => !preferred.includes(id) && !/whisper|tts|guard|audio|orpheus/i.test(id)),
+            const groqIds = await modelIds("https://api.groq.com/openai/v1/models", groqKey);
+            const groqPreferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.8-27b", "qwen/qwen3-32b"];
+            const groqCandidates = [
+              ...groqPreferred.filter((id) => groqIds.includes(id)),
+              ...groqIds.filter((id) => !groqPreferred.includes(id) && !/whisper|tts|guard|audio|orpheus/i.test(id)),
             ];
+            const groqModel = await chooseWorkingModel("groq", null, groqKey, groqCandidates, "Groq");
 
-            let groqModel = "";
-            let lastGroqError = "none";
-            for (const model of candidates.slice(0, 8)) {
-              try {
-                const result = await runProviderChat(
-                  { kind: "groq", baseUrl: null, model, apiKey: groqKey },
-                  [{ role: "user", content: "Reply only with OK" }],
-                  { temperature: 0, maxTokens: 8 },
-                );
-                if (result.content.trim()) {
-                  groqModel = model;
-                  console.log(`Groq probe: OK (${model})`);
-                  break;
-                }
-              } catch (error) {
-                lastGroqError = error instanceof Error ? error.message : String(error);
-              }
-            }
-            if (!groqModel) throw new Error(`No working Groq chat model. Last error: ${lastGroqError}`);
-
-            const nvidiaModel = "openai/gpt-oss-20b";
             const nvidiaBaseUrl = "https://integrate.api.nvidia.com/v1";
-            const nvidiaProbe = await runProviderChat(
-              { kind: "openai-compatible", baseUrl: nvidiaBaseUrl, model: nvidiaModel, apiKey: nvidiaKey },
-              [{ role: "user", content: "Reply only with OK" }],
-              { temperature: 0, maxTokens: 8 },
+            const nvidiaIds = await modelIds(`${nvidiaBaseUrl}/models`, nvidiaKey);
+            const nvidiaPreferred = [
+              "meta/llama-3.1-8b-instruct",
+              "meta/llama-3.3-70b-instruct",
+              "meta/llama-3.1-70b-instruct",
+              "qwen/qwen3-32b",
+              "mistralai/mistral-small-24b-instruct-2501",
+              "openai/gpt-oss-20b",
+            ];
+            const nvidiaUsable = nvidiaIds.filter((id) =>
+              !/embed|rerank|guard|vision|vl|audio|whisper|tts|reward|classifier/i.test(id),
             );
-            if (!nvidiaProbe.content.trim()) throw new Error("NVIDIA returned an empty chat response.");
-            console.log(`NVIDIA probe: OK (${nvidiaModel})`);
+            const nvidiaCandidates = [
+              ...nvidiaPreferred.filter((id) => nvidiaIds.includes(id)),
+              ...nvidiaUsable.filter((id) => !nvidiaPreferred.includes(id) && /instruct|chat|llama|qwen|mistral/i.test(id)),
+            ];
+            if (!nvidiaCandidates.length) throw new Error("NVIDIA returned no chat-like models.");
+            const nvidiaModel = await chooseWorkingModel(
+              "openai-compatible", nvidiaBaseUrl, nvidiaKey, nvidiaCandidates, "NVIDIA",
+            );
 
             let existing = await db.select().from(aiProvidersTable).where(eq(aiProvidersTable.userId, userId));
 
@@ -140,29 +161,17 @@ jobs:
             const groqDefault = !otherDefault;
 
             if (groqDefault) {
-              await db.update(aiProvidersTable)
-                .set({ isDefault: false, updatedAt: new Date() })
+              await db.update(aiProvidersTable).set({ isDefault: false, updatedAt: new Date() })
                 .where(eq(aiProvidersTable.userId, userId));
             }
 
             const groqValues = {
-              name: "Groq",
-              kind: "groq",
-              baseUrl: null,
-              model: groqModel,
-              ...encryptApiKey(groqKey),
-              capabilities: ["chat"] as any,
-              priority: 70,
-              isActive: true,
-              isDefault: groqDefault,
-              healthStatus: "available",
-              consecutiveFailures: 0,
-              cooldownUntil: null,
-              status: "connected",
-              lastTestAt: new Date(),
-              updatedAt: new Date(),
+              name: "Groq", kind: "groq", baseUrl: null, model: groqModel,
+              ...encryptApiKey(groqKey), capabilities: ["chat"] as any, priority: 70,
+              isActive: true, isDefault: groqDefault, healthStatus: "available",
+              consecutiveFailures: 0, cooldownUntil: null, status: "connected",
+              lastTestAt: new Date(), updatedAt: new Date(),
             };
-
             if (oldGroq) {
               await db.update(aiProvidersTable).set(groqValues).where(
                 and(eq(aiProvidersTable.userId, userId), eq(aiProvidersTable.id, oldGroq.id)),
@@ -174,23 +183,12 @@ jobs:
             }
 
             const nvidiaValues = {
-              name: "NVIDIA",
-              kind: "openai-compatible",
-              baseUrl: nvidiaBaseUrl,
-              model: nvidiaModel,
-              ...encryptApiKey(nvidiaKey),
-              capabilities: ["chat"] as any,
-              priority: 60,
-              isActive: true,
-              isDefault: false,
-              healthStatus: "available",
-              consecutiveFailures: 0,
-              cooldownUntil: null,
-              status: "connected",
-              lastTestAt: new Date(),
-              updatedAt: new Date(),
+              name: "NVIDIA", kind: "openai-compatible", baseUrl: nvidiaBaseUrl, model: nvidiaModel,
+              ...encryptApiKey(nvidiaKey), capabilities: ["chat"] as any, priority: 60,
+              isActive: true, isDefault: false, healthStatus: "available",
+              consecutiveFailures: 0, cooldownUntil: null, status: "connected",
+              lastTestAt: new Date(), updatedAt: new Date(),
             };
-
             if (oldNvidia) {
               await db.update(aiProvidersTable).set(nvidiaValues).where(
                 and(eq(aiProvidersTable.userId, userId), eq(aiProvidersTable.id, oldNvidia.id)),
@@ -202,13 +200,9 @@ jobs:
             }
 
             const finalRows = await db.select({
-              name: aiProvidersTable.name,
-              kind: aiProvidersTable.kind,
-              model: aiProvidersTable.model,
-              isDefault: aiProvidersTable.isDefault,
-              isActive: aiProvidersTable.isActive,
-              status: aiProvidersTable.status,
-              healthStatus: aiProvidersTable.healthStatus,
+              name: aiProvidersTable.name, kind: aiProvidersTable.kind, model: aiProvidersTable.model,
+              isDefault: aiProvidersTable.isDefault, isActive: aiProvidersTable.isActive,
+              status: aiProvidersTable.status, healthStatus: aiProvidersTable.healthStatus,
             }).from(aiProvidersTable).where(eq(aiProvidersTable.userId, userId));
 
             const gf = finalRows.find((p) => p.kind === "groq");
