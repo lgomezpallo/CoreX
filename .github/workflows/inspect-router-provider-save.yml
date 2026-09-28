@@ -1,6 +1,9 @@
 name: Inspect Router Provider Save
 
 on:
+  push:
+    paths:
+      - '.github/workflows/inspect-router-provider-save.yml'
   workflow_dispatch:
 
 permissions:
