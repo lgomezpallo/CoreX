@@ -90,6 +90,8 @@ for p in (ROOT / 'artifacts/router-ia/src').rglob('*.tsx'):
 # 3) Backend: account credential -> model discovery -> automatic text model.
 p = ROOT / 'artifacts/api-server/src/lib/ai-router.ts'
 text = p.read_text()
+# Cloudflare Workers only supports redirect="follow" or "manual".
+text = text.replace('redirect: "error"', 'redirect: "follow"')
 text = text.replace(
     '  | "openai-compatible"\n  | "groq";',
     '  | "openai-compatible"\n  | "groq"\n  | "cloudflare";',
