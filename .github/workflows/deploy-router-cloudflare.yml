@@ -57,17 +57,13 @@ jobs:
         working-directory: /tmp/router-export
         run: |
           cat > artifacts/api-server/src/cloudflare.ts <<'TS'
-          import { handleAsNodeRequest } from "cloudflare:node";
+          import { httpServerHandler } from "cloudflare:node";
           import app from "./app";
 
           const port = 3000;
           app.listen(port);
 
-          export default {
-            fetch(request: Request): Promise<Response> {
-              return handleAsNodeRequest(port, request);
-            },
-          };
+          export default httpServerHandler({ port });
           TS
 
       - name: Check required deployment secrets
