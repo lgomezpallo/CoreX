@@ -19,4 +19,4 @@ jobs:
           unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
           python3 scripts/patch-router-cloudflare-account.py
           python3 scripts/patch-router-provider-accounts.py
-          nl -ba /tmp/router-export/artifacts/router-ia/src/App.tsx | sed -n '450,515p'
+          nl -ba /tmp/router-export/artifacts/router-ia/src/App.tsx | sed -n '415,505p'
