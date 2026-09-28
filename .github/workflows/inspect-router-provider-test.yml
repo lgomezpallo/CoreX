@@ -1,0 +1,32 @@
+name: Inspect Router Provider Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-router-provider-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract Router export
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/router-export
+          mkdir -p /tmp/router-export
+          unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
+      - name: Inspect provider test and redirect usage
+        working-directory: /tmp/router-export
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== REDIRECT ERROR REFERENCES ==='
+          grep -Rni --include='*.ts' --include='*.tsx' --include='*.js' 'redirect:[[:space:]]*["'"']error["'"']' artifacts libs 2>/dev/null || true
+          echo
+          echo '=== PROVIDER TEST REFERENCES ==='
+          grep -RniE --include='*.ts' --include='*.tsx' 'test.*provider|provider.*test|connection.*test|test.*connection|Probar conexión|decryptApiKey|runProviderChat' artifacts/api-server/src artifacts/router-ia/src libs 2>/dev/null | head -400 || true
