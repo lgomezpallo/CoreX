@@ -84,6 +84,14 @@ jobs:
             fatal: (...args: LogArgs) => log("error", args),
             child: () => logger,
           };
+
+          declare global {
+            namespace Express {
+              interface Request {
+                log: typeof logger;
+              }
+            }
+          }
           TS
 
           python3 - <<'PY'
@@ -98,13 +106,13 @@ jobs:
               start = text.index(marker)
               end_marker = 'app.use(CLERK_PROXY_PATH'
               end = text.index(end_marker, start)
-              replacement = '''app.use((req, _res, next) => {\n  logger.info({ method: req.method, url: req.url?.split("?")[0] }, "http request");\n  next();\n});\n\napp.get("/__cloudflare_preflight", (_req, res) => {\n  res.json({ status: "ok" });\n});\n\n'''
+              replacement = '''app.use((req, _res, next) => {\n  req.log = logger;\n  req.log.info({ method: req.method, url: req.url?.split("?")[0] }, "http request");\n  next();\n});\n\napp.get("/__cloudflare_preflight", (_req, res) => {\n  res.json({ status: "ok" });\n});\n\n'''
               text = text[:start] + replacement + text[end:]
           else:
               raise SystemExit('Expected pino-http middleware block not found')
 
           p.write_text(text)
-          print('pino-http removed; Workers-safe logger and preflight route installed')
+          print('pino-http removed; req.log preserved with Workers-safe logger')
           PY
 
       - name: Static Cloudflare compatibility scan
