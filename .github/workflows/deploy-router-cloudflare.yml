@@ -36,6 +36,26 @@ jobs:
           test -f /tmp/router-export/pnpm-lock.yaml
           test -f /tmp/router-export/wrangler.jsonc
 
+      - name: Remove unused Hyperdrive placeholder
+        working-directory: /tmp/router-export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('wrangler.jsonc')
+          text = p.read_text()
+          block = '''  "hyperdrive": [
+            {
+              "binding": "HYPERDRIVE",
+              "id": "REPLACE_WITH_HYPERDRIVE_CONFIG_ID",
+            },
+          ],
+          '''
+          if block not in text:
+              raise SystemExit('Expected Hyperdrive placeholder block not found')
+          p.write_text(text.replace(block, ''))
+          print('Hyperdrive placeholder removed; Supabase will use SUPABASE_DATABASE_URL')
+          PY
+
       - name: Check required deployment secrets
         shell: bash
         run: |
