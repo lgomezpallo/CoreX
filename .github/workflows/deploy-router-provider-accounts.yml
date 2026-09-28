@@ -5,12 +5,13 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/deploy-router-provider-accounts.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  deploy-and-migrate:
+  deploy:
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -25,6 +26,7 @@ jobs:
       NODE_ENV: production
       PORT: '8080'
       BASE_PATH: /
+
     steps:
       - uses: actions/checkout@v4
 
@@ -87,81 +89,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm exec wrangler deploy --config wrangler.jsonc 2>&1 | tee /tmp/router-provider-accounts-deploy.log
+          pnpm exec wrangler deploy --config wrangler.jsonc 2>&1 | tee /tmp/router-deploy.log
 
-      - name: Verify public health
+      - name: Verify public Router
         shell: bash
         run: |
           set -euo pipefail
-          code=$(curl -sS -o /tmp/router-health -w '%{http_code}' --max-time 30 https://router-ia.luisgomezpallo.workers.dev/health)
-          echo "Public health HTTP $code"
+          root_code=$(curl -sS -o /tmp/router-root -w '%{http_code}' --max-time 30 https://router-ia.luisgomezpallo.workers.dev/)
+          health_code=$(curl -sS -o /tmp/router-health -w '%{http_code}' --max-time 30 https://router-ia.luisgomezpallo.workers.dev/health)
+          echo "Root HTTP $root_code"
+          echo "Health HTTP $health_code"
           cat /tmp/router-health
           echo
-          test "$code" = '200'
-
-      - name: Verify catalogs and migrate existing providers to account mode
-        working-directory: /tmp/router-export/artifacts/api-server
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > src/migrate-provider-accounts.ts <<'TS'
-          import { eq } from "drizzle-orm";
-          import { db, aiProvidersTable } from "@workspace/db";
-          import { decryptApiKey, listProviderAccountModels, type ProviderConfig } from "./lib/ai-router";
-
-          async function main() {
-            const rows = await db.select().from(aiProvidersTable);
-            const groq = rows.find((p) => p.kind === "groq");
-            const nvidia = rows.find((p) => p.kind === "nvidia" || (p.kind === "openai-compatible" && ((p.baseUrl ?? "").includes("integrate.api.nvidia.com") || p.name.toLowerCase().includes("nvidia"))));
-            if (!groq) throw new Error("Groq provider row not found.");
-            if (!nvidia) throw new Error("NVIDIA provider row not found.");
-
-            const groqKey = process.env.GROQ_API_KEY?.trim() || decryptApiKey(groq);
-            const groqConfig: ProviderConfig = { kind: "groq", model: "__auto__", baseUrl: null, apiKey: groqKey };
-            const nvidiaConfig: ProviderConfig = { kind: "nvidia", model: "__auto__", baseUrl: null, apiKey: decryptApiKey(nvidia) };
-
-            const [groqModels, nvidiaModels] = await Promise.all([
-              listProviderAccountModels(groqConfig, true),
-              listProviderAccountModels(nvidiaConfig, true),
-            ]);
-            if (!groqModels.length) throw new Error("Groq catalog returned no usable models.");
-            if (!nvidiaModels.length) throw new Error("NVIDIA catalog returned no usable models.");
-
-            await db.update(aiProvidersTable).set({
-              model: "__auto__",
-              status: "connected",
-              healthStatus: "available",
-              isActive: true,
-              updatedAt: new Date(),
-            }).where(eq(aiProvidersTable.id, groq.id));
-
-            await db.update(aiProvidersTable).set({
-              kind: "nvidia",
-              model: "__auto__",
-              baseUrl: null,
-              status: "connected",
-              healthStatus: "available",
-              isActive: true,
-              updatedAt: new Date(),
-            }).where(eq(aiProvidersTable.id, nvidia.id));
-
-            console.log(`Groq account catalog: ${groqModels.length} usable models`);
-            console.log(`NVIDIA account catalog: ${nvidiaModels.length} usable models`);
-            console.log('Groq and NVIDIA migrated to provider-account mode (__auto__).');
-          }
-
-          main().catch((error) => {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(1);
-          });
-          TS
-          pnpm dlx tsx src/migrate-provider-accounts.ts
-          rm -f src/migrate-provider-accounts.ts
-
-      - name: Final public health
-        shell: bash
-        run: |
-          set -euo pipefail
-          code=$(curl -sS -o /tmp/router-final-health -w '%{http_code}' --max-time 30 https://router-ia.luisgomezpallo.workers.dev/health)
-          echo "Final public health HTTP $code"
-          test "$code" = '200'
+          test "$root_code" = '200'
+          test "$health_code" = '200'
