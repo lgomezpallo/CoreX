@@ -25,8 +25,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== REDIRECT ERROR REFERENCES ==='
-          grep -Rni --include='*.ts' --include='*.tsx' --include='*.js' 'redirect:[[:space:]]*["'"']error["'"']' artifacts libs 2>/dev/null || true
-          echo
-          echo '=== PROVIDER TEST REFERENCES ==='
-          grep -RniE --include='*.ts' --include='*.tsx' 'test.*provider|provider.*test|connection.*test|test.*connection|Probar conexión|decryptApiKey|runProviderChat' artifacts/api-server/src artifacts/router-ia/src libs 2>/dev/null | head -400 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = [Path('artifacts/api-server/src'), Path('artifacts/router-ia/src'), Path('libs')]
+          print('=== REDIRECT ERROR REFERENCES ===')
+          for root in roots:
+              if not root.exists():
+                  continue
+              for p in root.rglob('*'):
+                  if p.suffix not in {'.ts','.tsx','.js','.mjs'}:
+                      continue
+                  lines = p.read_text(errors='replace').splitlines()
+                  for i,line in enumerate(lines,1):
+                      if re.search(r'redirect\s*:\s*["\']error["\']', line):
+                          print(f'{p}:{i}:{line}')
+
+          print('\n=== PROVIDER TEST REFERENCES ===')
+          pat = re.compile(r'test.*provider|provider.*test|connection.*test|test.*connection|Probar conexión|decryptApiKey|runProviderChat', re.I)
+          count=0
+          for root in roots:
+              if not root.exists():
+                  continue
+              for p in root.rglob('*'):
+                  if p.suffix not in {'.ts','.tsx','.js','.mjs'}:
+                      continue
+                  lines = p.read_text(errors='replace').splitlines()
+                  for i,line in enumerate(lines,1):
+                      if pat.search(line):
+                          print(f'{p}:{i}:{line}')
+                          count += 1
+                          if count >= 400:
+                              raise SystemExit(0)
+          PY
