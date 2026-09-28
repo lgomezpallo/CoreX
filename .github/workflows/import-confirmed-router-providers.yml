@@ -137,7 +137,6 @@ jobs:
             .from(aiProvidersTable)
             .where(eq(aiProvidersTable.userId, userId));
 
-          // Cloudflare stays stored if it exists, but is removed from the active routing pool for now.
           for (const provider of existing.filter((p) => p.kind === "cloudflare")) {
             await db.update(aiProvidersTable)
               .set({ isActive: false, isDefault: false, updatedAt: new Date() })
@@ -245,6 +244,6 @@ jobs:
           }
           TS
 
-          pnpm exec tsx ./import-confirmed-providers.ts
+          pnpm dlx tsx ./import-confirmed-providers.ts
           rm -f ./import-confirmed-providers.ts
           echo 'Confirmed providers imported without printing secret values.'
