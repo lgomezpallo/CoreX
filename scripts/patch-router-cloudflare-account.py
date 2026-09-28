@@ -37,6 +37,24 @@ replace_all_text_files(
     'enum: [openai, anthropic, gemini, openai-compatible, groq, cloudflare]',
 )
 
+# Orval also emits object-style enum constants. Patch those explicitly because the
+# frontend imports ProviderKind / ProviderInputKind from the generated client.
+for rel in [
+    'lib/api-client-react/src/generated/api.schemas.ts',
+    'lib/api-zod/src/generated/types/providerKind.ts',
+    'lib/api-zod/src/generated/types/providerInputKind.ts',
+]:
+    p = ROOT / rel
+    if not p.exists():
+        continue
+    text = p.read_text()
+    if 'cloudflare' not in text:
+        text = text.replace("  groq: 'groq',", "  groq: 'groq',\n  cloudflare: 'cloudflare',")
+        text = text.replace('  groq: "groq",', '  groq: "groq",\n  cloudflare: "cloudflare",')
+        text = text.replace("  GROQ: 'groq',", "  GROQ: 'groq',\n  CLOUDFLARE: 'cloudflare',")
+        text = text.replace('  GROQ: "groq",', '  GROQ: "groq",\n  CLOUDFLARE: "cloudflare",')
+    p.write_text(text)
+
 # Backend adapter: account credential -> dynamic Workers AI catalog -> automatic text model.
 p = ROOT / 'artifacts/api-server/src/lib/ai-router.ts'
 text = p.read_text()
@@ -170,13 +188,9 @@ if model_block_start in text and "Catálogo automático de Workers AI" not in te
 api_key_marker = "            {values.kind === 'groq' ? (\n"
 if "input-cloudflare-account-id" not in text:
     cloudflare_account = '''            {values.kind === 'cloudflare' && (\n              <label className="block sm:col-span-2">\n                <span className="field-label">Cloudflare Account ID</span>\n                <input\n                  data-testid="input-cloudflare-account-id"\n                  value={values.accountId}\n                  onChange={(event) => set('accountId', event.target.value)}\n                  placeholder="Account ID"\n                  className="field-input font-mono"\n                  required\n                />\n              </label>\n            )}\n'''
-    # Insert immediately before the API-key section, using the second Groq conditional after model block.
     pos = text.find(api_key_marker, text.find("Catálogo automático de Workers AI"))
     if pos >= 0:
         text = text[:pos] + cloudflare_account + text[pos:]
-
-# Cloudflare still asks for token; Groq is the only secret managed by env.
-text = text.replace("values.kind !== 'groq' && !values.apiKey.trim()", "values.kind !== 'groq' && !values.apiKey.trim()", 1)
 
 # Validation no longer requires a model for Cloudflare; it requires Account ID.
 old_validation = "if (!values.name.trim() || !values.model.trim() || (!isEdit && values.kind !== 'groq' && !values.apiKey.trim()))"
