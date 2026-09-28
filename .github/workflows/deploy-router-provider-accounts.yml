@@ -9,6 +9,7 @@ on:
       - 'scripts/fix-radar-provider-discovery-types.py'
       - 'scripts/expand-radar-free-providers.py'
       - 'scripts/patch-router-mobile-home.py'
+      - 'scripts/patch-openrouter-radar.py'
   workflow_dispatch:
 
 permissions:
@@ -55,6 +56,7 @@ jobs:
           python3 scripts/expand-radar-free-providers.py
           python3 scripts/patch-router-cloudflare-runtime.py
           python3 scripts/patch-router-mobile-home.py
+          python3 scripts/patch-openrouter-radar.py
 
       - uses: pnpm/action-setup@v4
         with:
