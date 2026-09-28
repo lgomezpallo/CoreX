@@ -58,14 +58,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify, import and activate Groq plus NVIDIA
-        working-directory: /tmp/router-export
+        working-directory: /tmp/router-export/artifacts/api-server
         shell: bash
         run: |
           set -euo pipefail
-          cat > ./import-confirmed-providers.ts <<'TS'
+          cat > ./src/import-confirmed-providers.ts <<'TS'
           import { and, eq } from "drizzle-orm";
           import { db, aiProvidersTable, routerOwnerTable } from "@workspace/db";
-          import { encryptApiKey, runProviderChat } from "./artifacts/api-server/src/lib/ai-router";
+          import { encryptApiKey, runProviderChat } from "./lib/ai-router";
 
           async function main() {
             const groqKey = process.env.GROQ_API_KEY?.trim();
@@ -228,6 +228,6 @@ jobs:
           });
           TS
 
-          pnpm dlx tsx ./import-confirmed-providers.ts
-          rm -f ./import-confirmed-providers.ts
+          pnpm dlx tsx ./src/import-confirmed-providers.ts
+          rm -f ./src/import-confirmed-providers.ts
           echo 'Confirmed providers imported without printing secret values.'
