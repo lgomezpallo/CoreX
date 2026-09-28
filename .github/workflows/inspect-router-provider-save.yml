@@ -1,0 +1,108 @@
+name: Inspect Router Provider Save
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract Router export
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/router-export
+          mkdir -p /tmp/router-export
+          unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
+
+      - name: Inspect provider create/save path
+        working-directory: /tmp/router-export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def show_file(path: Path, patterns, radius=35, max_lines=700):
+              if not path.exists():
+                  return
+              lines = path.read_text(errors='replace').splitlines()
+              hits = []
+              for i, line in enumerate(lines):
+                  if any(re.search(p, line, re.I) for p in patterns):
+                      hits.append(i)
+              if not hits:
+                  return
+              print(f'\n===== {path} =====')
+              shown = set()
+              count = 0
+              for i in hits:
+                  for j in range(max(0, i-radius), min(len(lines), i+radius+1)):
+                      if j in shown:
+                          continue
+                      shown.add(j)
+                      print(f'{j+1:04d}: {lines[j]}')
+                      count += 1
+                      if count >= max_lines:
+                          print('... truncated ...')
+                          return
+
+          roots = [Path('artifacts/api-server/src'), Path('lib'), Path('migrations'), Path('drizzle')]
+          files = []
+          for root in roots:
+              if root.exists():
+                  files += [p for p in root.rglob('*') if p.suffix in {'.ts','.tsx','.sql','.json'}]
+
+          route_patterns = [
+              r'router\.post\(["\']/providers', r'ProviderInput', r'insert\(',
+              r'aiProviders', r'ai_providers', r'encryptApiKey', r'runProviderChat',
+              r'validate', r'test.*provider', r'provider.*test'
+          ]
+          schema_patterns = [
+              r'aiProviders', r'ai_providers', r'pgEnum', r'kind', r'providerKind',
+              r'check\(', r'capabilities', r'baseUrl', r'apiKeyEncrypted'
+          ]
+
+          for p in files:
+              s = str(p)
+              if 'routes/ai-router' in s:
+                  show_file(p, route_patterns, radius=45, max_lines=900)
+
+          print('\n===== DB / SCHEMA / MIGRATIONS =====')
+          for p in files:
+              text = p.read_text(errors='replace')
+              if re.search(r'ai_providers|aiProviders|provider.*kind|kind.*provider', text, re.I):
+                  show_file(p, schema_patterns, radius=20, max_lines=350)
+
+          print('\n===== GENERATED PROVIDER INPUT SCHEMA =====')
+          for p in files:
+              s = str(p)
+              if 'api-zod' in s or 'api-client' in s:
+                  text = p.read_text(errors='replace')
+                  if 'ProviderInput' in text or 'providerInput' in text or 'ProviderKind' in text:
+                      show_file(p, [r'ProviderInput', r'providerInput', r'ProviderKind', r'providerKind'], radius=12, max_lines=250)
+          PY
+
+      - name: Report likely save blockers
+        working-directory: /tmp/router-export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          findings=[]
+          for p in [x for x in Path('.').rglob('*') if x.suffix in {'.ts','.sql'}]:
+              t=p.read_text(errors='replace')
+              if ('ai_providers' in t or 'aiProviders' in t) and re.search(r'openai|anthropic|gemini|groq', t, re.I):
+                  if 'cloudflare' not in t and re.search(r'kind|enum|check', t, re.I):
+                      findings.append(f'POSSIBLE_KIND_RESTRICTION: {p}')
+          route=Path('artifacts/api-server/src/routes/ai-router.ts')
+          if route.exists():
+              t=route.read_text(errors='replace')
+              if '__auto__' not in t and 'runProviderChat' in t:
+                  findings.append('CREATE_ROUTE_HAS_NO_EXPLICIT_CLOUDFLARE_AUTO_HANDLING')
+          print('\n'.join(findings) if findings else 'NO_STATIC_BLOCKER_DETECTED')
+          PY
