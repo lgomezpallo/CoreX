@@ -7,6 +7,7 @@ on:
     paths:
       - 'Router-IA-Privado.zip'
       - 'Programacion-en-espanol.zip'
+      - 'corex-project.zip'
       - '.github/workflows/unpack-projects.yml'
 
 permissions:
@@ -24,10 +25,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf projects/router-ia projects/programacion-en-espanol
-          mkdir -p projects/router-ia projects/programacion-en-espanol
+          rm -rf projects/router-ia projects/programacion-en-espanol projects/corex-replit
+          mkdir -p projects/router-ia projects/programacion-en-espanol projects/corex-replit
           unzip -q Router-IA-Privado.zip -d projects/router-ia
           unzip -q Programacion-en-espanol.zip -d projects/programacion-en-espanol
+          unzip -q corex-project.zip -d projects/corex-replit
           find projects -type d -name .git -prune -exec rm -rf {} + || true
           find projects -type f -name '.DS_Store' -delete || true
 
@@ -42,5 +44,5 @@ jobs:
             echo "No extracted changes to commit"
             exit 0
           fi
-          git commit -m "Extract Router IA and Programacion en Espanol"
+          git commit -m "Extract project archives including CoreX Replit"
           git push
