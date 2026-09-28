@@ -36,6 +36,42 @@ jobs:
           test -f /tmp/router-export/pnpm-lock.yaml
           test -f /tmp/router-export/wrangler.jsonc
 
+      - name: Inspect Radar implementation
+        working-directory: /tmp/router-export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = [Path('artifacts/api-server/src'), Path('artifacts/router-ia/src'), Path('lib')]
+          pattern = re.compile(r'radar|catalog|openrouter|models?\.dev|/models|groq', re.I)
+          hits = 0
+          print('=== RADAR SOURCE MAP ===')
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*'):
+                  if path.suffix not in {'.ts', '.tsx', '.js', '.mjs', '.json'}:
+                      continue
+                  lines = path.read_text(errors='replace').splitlines()
+                  match_lines = [i for i, line in enumerate(lines) if pattern.search(line)]
+                  if not match_lines:
+                      continue
+                  print(f'\n--- {path} ---')
+                  shown = set()
+                  for i in match_lines:
+                      for j in range(max(0, i-3), min(len(lines), i+4)):
+                          if j in shown:
+                              continue
+                          shown.add(j)
+                          print(f'{j+1:04d}: {lines[j]}')
+                          hits += 1
+                          if hits >= 500:
+                              print('=== RADAR SOURCE MAP TRUNCATED AT 500 LINES ===')
+                              raise SystemExit(0)
+          print(f'\n=== RADAR SOURCE MAP COMPLETE ({hits} excerpt lines) ===')
+          PY
+
       - name: Prepare Cloudflare config
         working-directory: /tmp/router-export
         run: |
