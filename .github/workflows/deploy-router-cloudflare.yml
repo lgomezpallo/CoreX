@@ -72,6 +72,37 @@ jobs:
           print(f'\n=== RADAR SOURCE MAP COMPLETE ({hits} excerpt lines) ===')
           PY
 
+      - name: Harden Radar OpenRouter catalog fetch
+        working-directory: /tmp/router-export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('artifacts/api-server/src/lib/model-radar.ts')
+          text = p.read_text()
+
+          old_url = '"https://openrouter.ai/api/v1/models?limit=1000"'
+          if old_url in text:
+              text = text.replace(old_url, '"https://openrouter.ai/api/v1/models"', 1)
+
+          if 'const MAX_RESPONSE_BYTES = 4_000_000;' in text:
+              text = text.replace(
+                  'const MAX_RESPONSE_BYTES = 4_000_000;',
+                  'const MAX_RESPONSE_BYTES = 16_000_000;',
+                  1,
+              )
+
+          text = text.replace('redirect: "error"', 'redirect: "follow"', 1)
+          text = text.replace(
+              'headers: { accept: "application/json" },',
+              'headers: { accept: "application/json", "user-agent": "Router-IA-Radar/1.0" },',
+              1,
+          )
+
+          p.write_text(text)
+          print('Radar catalog fetch hardened for Cloudflare Workers')
+          PY
+
       - name: Prepare Cloudflare config
         working-directory: /tmp/router-export
         run: |
