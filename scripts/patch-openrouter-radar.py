@@ -16,11 +16,16 @@ validation = r'''  if (
     parsed.data.kind === "openai-compatible" &&
     baseUrl?.includes("openrouter.ai/api/v1")
   ) {
+    const openRouterApiKey = parsed.data.apiKey?.trim();
+    if (!openRouterApiKey) {
+      res.status(400).json({ error: "Pegá una API Key de OpenRouter." });
+      return;
+    }
     try {
       const response = await fetch("https://openrouter.ai/api/v1/key", {
         method: "GET",
         headers: {
-          authorization: `Bearer ${parsed.data.apiKey.trim()}`,
+          authorization: `Bearer ${openRouterApiKey}`,
           accept: "application/json",
         },
         redirect: "follow",
