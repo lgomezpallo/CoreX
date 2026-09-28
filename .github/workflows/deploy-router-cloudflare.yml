@@ -53,6 +53,23 @@ jobs:
           print('Hyperdrive placeholder removed; Supabase will use SUPABASE_DATABASE_URL')
           PY
 
+      - name: Use direct Supabase Cloudflare adapter
+        working-directory: /tmp/router-export
+        run: |
+          cat > artifacts/api-server/src/cloudflare.ts <<'TS'
+          import { handleAsNodeRequest } from "cloudflare:node";
+          import app from "./app";
+
+          const port = 3000;
+          app.listen(port);
+
+          export default {
+            fetch(request: Request): Promise<Response> {
+              return handleAsNodeRequest(port, request);
+            },
+          };
+          TS
+
       - name: Check required deployment secrets
         shell: bash
         run: |
