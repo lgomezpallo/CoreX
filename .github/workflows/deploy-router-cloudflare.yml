@@ -109,15 +109,37 @@ jobs:
 
       - name: Static Cloudflare compatibility scan
         working-directory: /tmp/router-export
-        shell: bash
         run: |
-          set -euo pipefail
-          if grep -RniE 'REPLACE_WITH_HYPERDRIVE_CONFIG_ID|pino-http|from ["'"']pino["'"']|handleAsNodeRequest' \
-            artifacts/api-server/src lib --include='*.ts' --include='*.tsx'; then
-            echo 'Cloudflare-incompatible runtime reference still present'
-            exit 1
-          fi
-          echo 'Static compatibility scan OK'
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = [Path('artifacts/api-server/src'), Path('lib')]
+          checks = [
+              ('Hyperdrive placeholder', re.compile(r'REPLACE_WITH_HYPERDRIVE_CONFIG_ID')),
+              ('pino-http runtime import/reference', re.compile(r'pino-http')),
+              ('Pino runtime import', re.compile(r'from\s+["\']pino["\']')),
+              ('obsolete Cloudflare adapter', re.compile(r'handleAsNodeRequest')),
+          ]
+
+          findings = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*'):
+                  if path.suffix not in {'.ts', '.tsx'}:
+                      continue
+                  text = path.read_text(errors='replace')
+                  for label, pattern in checks:
+                      if pattern.search(text):
+                          findings.append(f'{label}: {path}')
+
+          if findings:
+              print('\n'.join(findings))
+              raise SystemExit('Cloudflare-incompatible runtime reference still present')
+
+          print('Static compatibility scan OK')
+          PY
 
       - name: Check required deployment secrets
         shell: bash
