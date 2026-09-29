@@ -1,0 +1,29 @@
+name: Inspect Router App Tokens
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-router-app-tokens.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect token routes and client
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/router-export
+          mkdir -p /tmp/router-export
+          unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
+          cd /tmp/router-export
+          echo '=== BACKEND TOKEN ROUTES ==='
+          grep -RniE 'routerAppTokensTable|app-tokens|revoke|Revocar' artifacts/api-server/src artifacts/router-ia/src 2>/dev/null | head -260 || true
+          echo
+          echo '=== GENERATED CLIENT TOKEN FUNCTIONS ==='
+          grep -RniE 'deleteRouterAppToken|createRouterAppToken|listRouterAppTokens|appTokens|app-tokens' artifacts/router-ia/src libs artifacts 2>/dev/null | head -320 || true
