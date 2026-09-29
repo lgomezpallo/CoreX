@@ -22,8 +22,11 @@ jobs:
           mkdir -p /tmp/router-export
           unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
           cd /tmp/router-export
-          echo '=== BACKEND TOKEN ROUTES ==='
-          grep -RniE 'routerAppTokensTable|app-tokens|revoke|Revocar' artifacts/api-server/src artifacts/router-ia/src 2>/dev/null | head -260 || true
+          echo '=== BACKEND REVOKE ROUTE ==='
+          sed -n '1420,1500p' artifacts/api-server/src/routes/ai-router.ts
           echo
-          echo '=== GENERATED CLIENT TOKEN FUNCTIONS ==='
-          grep -RniE 'deleteRouterAppToken|createRouterAppToken|listRouterAppTokens|appTokens|app-tokens' artifacts/router-ia/src libs artifacts 2>/dev/null | head -320 || true
+          echo '=== UI APPLICATION TOKENS ==='
+          sed -n '895,980p' artifacts/router-ia/src/App.tsx
+          echo
+          echo '=== CLIENT DEFINITIONS ==='
+          grep -RniE 'useRevokeRouterAppToken|revokeRouterAppToken|RevokeRouterAppToken' . --exclude='*.map' --exclude-dir=node_modules | head -200 || true
