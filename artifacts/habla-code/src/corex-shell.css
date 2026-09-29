@@ -162,4 +162,34 @@
     padding: 13px;
     gap: 10px;
   }
+
+  /* The Android keyboard shrinks the visual viewport. Let the Builder shrink with it instead of enforcing the old 500px minimum. */
+  .corex-app-content > .builder-shell {
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  .corex-app-shell .builder-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  .corex-app-shell .builder-main:not(.is-source-stage):not(.is-assembly-stage) {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  .corex-app-shell .builder-conversation-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    flex: 1 1 auto !important;
+  }
+  .corex-app-shell .builder-chat-scroll {
+    min-height: 0 !important;
+  }
+  .corex-app-shell .builder-composer-wrap {
+    flex: 0 0 auto !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    background: #fff;
+  }
 }
