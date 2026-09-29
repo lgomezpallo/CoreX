@@ -163,7 +163,7 @@
     gap: 10px;
   }
 
-  /* The Android keyboard shrinks the visual viewport. Let the Builder shrink with it instead of enforcing the old 500px minimum. */
+  /* Keep the chat usable on mobile and let dynamic viewport units react to the Android keyboard. */
   .corex-app-content > .builder-shell {
     height: 100% !important;
     min-height: 0 !important;
@@ -172,17 +172,18 @@
   .corex-app-shell .builder-body {
     flex: 1 1 auto !important;
     min-height: 0 !important;
-    overflow: hidden !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
   .corex-app-shell .builder-main:not(.is-source-stage):not(.is-assembly-stage) {
-    flex: 1 1 auto !important;
+    flex: 0 0 auto !important;
     min-height: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
   .corex-app-shell .builder-conversation-panel {
-    height: auto !important;
-    min-height: 0 !important;
-    flex: 1 1 auto !important;
+    height: max(260px, calc(100dvh - 230px)) !important;
+    min-height: 260px !important;
+    flex: 0 0 auto !important;
   }
   .corex-app-shell .builder-chat-scroll {
     min-height: 0 !important;
