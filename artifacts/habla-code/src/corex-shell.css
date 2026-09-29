@@ -21,6 +21,15 @@
   background: rgba(255, 255, 255, .96);
   backdrop-filter: blur(10px);
 }
+.corex-brand-mini {
+  margin-right: 8px;
+  color: #365c49;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  opacity: .82;
+}
 .corex-primary-nav button {
   min-height: 35px;
   display: inline-flex;
@@ -53,9 +62,24 @@
   height: 100%;
   min-height: 100%;
 }
+
+/* CoreX owns the main navigation. Keep Builder's header only as a compact stage strip. */
 .corex-app-shell .builder-workspace-switch,
-.corex-app-shell .builder-settings-button {
+.corex-app-shell .builder-settings-button,
+.corex-app-shell .builder-brand,
+.corex-app-shell .builder-topbar-right {
   display: none !important;
+}
+.corex-app-shell .builder-topbar {
+  height: 52px !important;
+  min-height: 52px !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  padding: 0 12px !important;
+  background: #fff !important;
+}
+.corex-app-shell .builder-stage-nav {
+  margin: 0 auto !important;
 }
 
 @media (max-width: 640px) {
@@ -67,10 +91,20 @@
     padding-inline: 8px;
   }
   .corex-primary-nav::-webkit-scrollbar { display: none; }
+  .corex-brand-mini {
+    flex: 0 0 auto;
+    margin-right: 4px;
+    font-size: 9px;
+  }
   .corex-primary-nav button {
     flex: 0 0 auto;
     min-height: 34px;
     padding: 0 10px;
     font-size: 9px;
+  }
+  .corex-app-shell .builder-topbar {
+    height: 48px !important;
+    min-height: 48px !important;
+    padding-inline: 8px !important;
   }
 }
