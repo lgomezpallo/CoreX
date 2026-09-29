@@ -124,22 +124,7 @@
 }
 
 .auth-backup-notice {
-  position: fixed;
-  z-index: 1100;
-  right: 18px;
-  bottom: 18px;
-  display: flex;
-  max-width: min(650px, calc(100vw - 36px));
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid #d8d1ff;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 10px 36px rgba(33, 28, 74, 0.15);
-  color: #39364c;
-  font-size: 0.84rem;
-  line-height: 1.35;
+  display: none !important;
 }
 
 .auth-backup-notice button,
@@ -238,15 +223,5 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 5px;
-  }
-
-  .auth-backup-notice {
-    right: 10px;
-    bottom: 10px;
-    left: 10px;
-    max-width: none;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
   }
 }
