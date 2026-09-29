@@ -15,11 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect response handling
+      - name: Inspect app token id schema
         run: |
           set -euo pipefail
           rm -rf /tmp/router-export
           mkdir -p /tmp/router-export
           unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
           cd /tmp/router-export
-          sed -n '280,430p' lib/api-client-react/src/custom-fetch.ts
+          sed -n '496,512p' lib/api-zod/src/generated/api.ts
