@@ -6,6 +6,7 @@ import { ProjectHub } from "@/components/project-hub";
 import { RouterSettings } from "@/components/router-settings";
 import type { BuilderProject } from "@/lib/builder-workspace";
 import "./corex-shell.css";
+import "./chat-send-overrides.css";
 
 type MainSection = "builder" | "projects" | "lab";
 
