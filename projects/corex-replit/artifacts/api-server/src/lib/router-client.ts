@@ -39,7 +39,8 @@ type CompletionOptions = {
   jsonMode: boolean;
 };
 
-const DEFAULT_ROUTER_URL = "https://router-ia.luisgomezpallo.workers.dev";
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b";
 const REQUEST_TIMEOUT_MS = 60_000;
 
 const health = {
@@ -49,38 +50,9 @@ const health = {
   message: null as string | null,
 };
 
-function routerUrl(): URL | null {
-  const value = process.env.ROUTER_URL?.trim() || DEFAULT_ROUTER_URL;
-  try {
-    const url = new URL(value);
-    if (
-      (url.protocol !== "https:" && url.protocol !== "http:") ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      (url.pathname !== "/" && url.pathname !== "")
-    ) {
-      return null;
-    }
-    if (
-      process.env.NODE_ENV === "production" &&
-      url.protocol !== "https:"
-    ) {
-      return null;
-    }
-    return url;
-  } catch {
-    return null;
-  }
-}
-
 function configurationError(): string | null {
-  if (!process.env.ROUTER_APP_KEY?.trim()) {
-    return "Falta configurar ROUTER_APP_KEY en el entorno del servidor.";
-  }
-  if (!routerUrl()) {
-    return "ROUTER_URL debe ser una dirección HTTPS válida del Router IA.";
+  if (!process.env.GROQ_API_KEY?.trim()) {
+    return "Falta configurar GROQ_API_KEY en el entorno del servidor.";
   }
   return null;
 }
@@ -88,15 +60,15 @@ function configurationError(): string | null {
 function safeErrorMessage(error: unknown): string {
   const raw = error instanceof Error
     ? error.message
-    : "No se pudo completar la solicitud al Router IA.";
-  const appKey = process.env.ROUTER_APP_KEY?.trim();
+    : "No se pudo completar la solicitud directa a Groq.";
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   return raw
     .replace(/Bearer\s+[^\s]+/gi, "Bearer [clave oculta]")
     .replace(/\b(?:sk|gsk|rk)_[A-Za-z0-9_-]{8,}\b/gi, "[clave oculta]")
-    .replace(appKey || /\u0000/g, appKey ? "[clave oculta]" : "")
+    .replace(apiKey || /\u0000/g, apiKey ? "[clave oculta]" : "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 220) || "Router IA no respondió correctamente.";
+    .slice(0, 220) || "Groq no respondió correctamente.";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,40 +77,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function extractContent(payload: unknown): string {
   if (!isRecord(payload) || !Array.isArray(payload.choices)) {
-    throw new Error("Router IA devolvió una respuesta con formato inesperado.");
+    throw new Error("Groq devolvió una respuesta con formato inesperado.");
   }
   const choice = payload.choices[0];
   if (!isRecord(choice) || !isRecord(choice.message)) {
-    throw new Error("Router IA no devolvió un mensaje.");
+    throw new Error("Groq no devolvió un mensaje.");
   }
   const content = choice.message.content;
   if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Router IA devolvió una respuesta vacía.");
+    throw new Error("Groq devolvió una respuesta vacía.");
   }
   return content.trim();
 }
 
 export async function createRouterCompletion(
-  taskType: RouterTaskType,
+  _taskType: RouterTaskType,
   messages: RouterChatMessage[],
   options: CompletionOptions,
 ): Promise<string> {
   const configError = configurationError();
   if (configError) throw new Error(configError);
 
-  const url = routerUrl();
-  const appKey = process.env.ROUTER_APP_KEY?.trim();
-  if (!url || !appKey) throw new Error("Router IA no está configurado.");
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+  if (!apiKey) throw new Error("Groq no está configurado.");
 
-  const endpoint = new URL("/api/v1/chat/completions", url);
-  const response = await fetch(endpoint, {
+  const model = process.env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL;
+  const response = await fetch(GROQ_CHAT_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${appKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      task_type: taskType,
+      model,
       messages,
       max_tokens: options.maxTokens,
       ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
@@ -147,7 +118,10 @@ export async function createRouterCompletion(
   });
 
   if (!response.ok) {
-    throw new Error(`Router IA respondió con HTTP ${response.status}.`);
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Groq respondió con HTTP ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ""}.`,
+    );
   }
 
   return extractContent(await response.json());
@@ -183,7 +157,7 @@ export async function testRouterConnection(
       taskType,
       [
         { role: "system", content: "Respondé exactamente con la palabra OK." },
-        { role: "user", content: "Prueba de conexión." },
+        { role: "user", content: "Prueba de conexión directa de CoreX." },
       ],
       { maxTokens: 32, jsonMode: false },
     );
