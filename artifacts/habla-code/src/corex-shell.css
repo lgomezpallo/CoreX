@@ -1,4 +1,13 @@
 .corex-app-shell {
+  --builder-ink: #20382f;
+  --builder-muted: #748078;
+  --builder-line: #e6eae4;
+  --builder-paper: #ffffff;
+  --builder-canvas: #f5f7f3;
+  --builder-green: #356f59;
+  --builder-green-dark: #285844;
+  --builder-green-soft: #edf4ef;
+  --builder-orange: #e7a46d;
   height: 100dvh;
   min-height: 100dvh;
   display: flex;
@@ -82,6 +91,44 @@
   margin: 0 auto !important;
 }
 
+/* Settings now lives at CoreX shell level, outside .builder-shell. Keep its controls compact and readable. */
+.corex-app-shell .builder-provider-settings input:not([type="checkbox"]),
+.corex-app-shell .builder-provider-settings select {
+  width: 100%;
+  min-height: 42px;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dce5dc;
+  border-radius: 10px;
+  color: var(--builder-ink);
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.corex-app-shell .builder-provider-settings input:not([type="checkbox"]):focus,
+.corex-app-shell .builder-provider-settings select:focus {
+  outline: 2px solid #cfe1d4;
+  outline-offset: 1px;
+  border-color: #abc8b3;
+}
+.corex-app-shell .builder-provider-settings .builder-provider-test-all {
+  width: 100%;
+  min-height: 42px;
+  border-color: var(--builder-green);
+  color: #fff;
+  background: var(--builder-green);
+}
+.corex-app-shell .builder-provider-settings .builder-provider-test-all:disabled {
+  color: #fff;
+  background: #9db7a6;
+  border-color: #9db7a6;
+  opacity: .7;
+}
+.corex-app-shell .builder-provider-settings .builder-provider-card {
+  align-content: start;
+}
+
 @media (max-width: 640px) {
   .corex-primary-nav {
     justify-content: flex-start;
@@ -106,5 +153,13 @@
     height: 48px !important;
     min-height: 48px !important;
     padding-inline: 8px !important;
+  }
+  .corex-app-shell .builder-provider-settings-content {
+    padding: 14px 16px 24px;
+    gap: 11px;
+  }
+  .corex-app-shell .builder-provider-card {
+    padding: 13px;
+    gap: 10px;
   }
 }
