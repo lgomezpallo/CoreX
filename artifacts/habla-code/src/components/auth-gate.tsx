@@ -301,14 +301,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{ user: session.user, signOut, previewMode: false }}>
       <LocalBackupNotice ownerId={session.user.id} />
-      <div className="auth-account-toolbar">
-        <span title={session.user.email ?? "Cuenta de propietario"}>
-          {session.user.email ?? "Propietario"}
-        </span>
-        <button type="button" onClick={() => void signOut()}>
-          Salir
-        </button>
-      </div>
       {signOutError && <p className="auth-signout-error" role="alert">{signOutError}</p>}
       {children}
     </AuthContext.Provider>
