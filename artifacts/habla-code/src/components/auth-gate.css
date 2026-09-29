@@ -224,6 +224,16 @@
 }
 
 @media (max-width: 520px) {
+  .auth-account-toolbar {
+    position: relative;
+    z-index: 20;
+    top: auto;
+    right: auto;
+    width: fit-content;
+    max-width: calc(100vw - 20px);
+    margin: 8px 10px 0 auto;
+  }
+
   .auth-preview-banner {
     align-items: flex-start;
     flex-direction: column;
