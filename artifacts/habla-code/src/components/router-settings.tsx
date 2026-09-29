@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, Check, CircleHelp, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertCircle, Check, CircleHelp, LoaderCircle, LogOut, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import {
@@ -10,6 +10,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { useAuthenticatedUser } from "@/components/auth-gate";
 import {
   getListRouterProvidersQueryKey,
   useCreateRouterProvider,
@@ -96,6 +97,7 @@ function providerHealthLabel(provider: RouterProvider): string {
 }
 
 export function RouterSettings({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { user, signOut, previewMode } = useAuthenticatedUser();
   const queryClient = useQueryClient();
   const providers = useListRouterProviders({ query: { enabled: open, queryKey: getListRouterProvidersQueryKey() } });
   const create = useCreateRouterProvider();
@@ -110,6 +112,7 @@ export function RouterSettings({ open, onClose }: { open: boolean; onClose: () =
   const [groqKey, setGroqKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -117,6 +120,7 @@ export function RouterSettings({ open, onClose }: { open: boolean; onClose: () =
       setEditing(null);
       setAdvancedOpen(false);
       setGroqKey("");
+      setSigningOut(false);
     }
   }, [open]);
 
@@ -277,20 +281,48 @@ export function RouterSettings({ open, onClose }: { open: boolean; onClose: () =
     );
   };
 
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    setError(null);
+    try {
+      await signOut();
+    } catch {
+      setError("No pude cerrar la sesión.");
+      setSigningOut(false);
+    }
+  };
+
   return (
     <div className="builder-provider-settings-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="builder-provider-settings" role="dialog" aria-modal="true" aria-labelledby="router-settings-title">
         <header className="builder-provider-settings-header">
           <div>
-            <span className="builder-provider-settings-eyebrow">AJUSTES DEL GENERADOR</span>
-            <h2 id="router-settings-title">Proveedores de CoreX</h2>
+            <span className="builder-provider-settings-eyebrow">COREX</span>
+            <h2 id="router-settings-title">Configuración</h2>
           </div>
           <button type="button" onClick={onClose} aria-label="Cerrar configuración" data-testid="button-close-router-settings"><X size={18} /></button>
         </header>
 
         <div className="builder-provider-settings-content">
+          <div className="builder-provider-card">
+            <div className="builder-provider-card-heading">
+              <div>
+                <h4>Cuenta</h4>
+                <p>{previewMode ? "Vista previa de desarrollo" : "Cuenta de propietario"}</p>
+              </div>
+            </div>
+            {!previewMode && (
+              <>
+                <p className="builder-provider-settings-note">{user?.email ?? "Cuenta de propietario"}</p>
+                <button type="button" className="builder-provider-test-button" onClick={() => void handleSignOut()} disabled={signingOut}>
+                  <LogOut size={14} /> {signingOut ? "Saliendo…" : "Cerrar sesión"}
+                </button>
+              </>
+            )}
+          </div>
+
           <div className="builder-provider-list-heading">
-            <div><h3>Router IA</h3><p>CoreX configura automáticamente los proveedores conocidos.</p></div>
+            <div><h3>IA y proveedores</h3><p>CoreX configura automáticamente los proveedores conocidos.</p></div>
             <button type="button" className="builder-provider-refresh" onClick={() => void providers.refetch()} disabled={providers.isFetching} aria-label="Actualizar proveedores" data-testid="button-refresh-providers">
               {providers.isFetching ? <LoaderCircle size={15} className="builder-spin" /> : <RefreshCw size={15} />}
             </button>
