@@ -55,6 +55,7 @@ function CoreXWorkspace() {
   return (
     <div className="corex-app-shell">
       <nav className="corex-primary-nav" aria-label="Navegación principal de CoreX">
+        <span className="corex-brand-mini" aria-label="CoreX">CoreX</span>
         <button
           type="button"
           className={!settingsOpen && section === "builder" ? "is-active" : ""}
