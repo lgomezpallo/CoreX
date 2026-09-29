@@ -15,19 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect token routes and client
+      - name: Inspect response handling
         run: |
           set -euo pipefail
           rm -rf /tmp/router-export
           mkdir -p /tmp/router-export
           unzip -q 'router-ia-export 20260927.zip' -d /tmp/router-export
           cd /tmp/router-export
-          echo '=== REVOKE GENERATED CLIENT ==='
-          sed -n '1610,1700p' lib/api-client-react/src/generated/api.ts
-          echo
-          echo '=== CUSTOM FETCH LOCATIONS ==='
-          grep -RniE 'customFetch|setAuthTokenGetter' lib/api-client-react/src --exclude='*.map' | head -100 || true
-          echo
-          echo '=== MUTATOR FILES ==='
-          find lib/api-client-react/src -maxdepth 3 -type f -print
-          for f in $(grep -Rl 'async function customFetch\|const customFetch\|function customFetch' lib/api-client-react/src 2>/dev/null); do echo "--- $f"; sed -n '1,220p' "$f"; done
+          sed -n '280,430p' lib/api-client-react/src/custom-fetch.ts
