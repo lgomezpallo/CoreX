@@ -10,6 +10,7 @@ on:
       - 'scripts/expand-radar-free-providers.py'
       - 'scripts/patch-router-mobile-home.py'
       - 'scripts/patch-openrouter-radar.py'
+      - 'scripts/fix-router-app-controls.py'
   workflow_dispatch:
 
 permissions:
@@ -57,6 +58,7 @@ jobs:
           python3 scripts/patch-router-cloudflare-runtime.py
           python3 scripts/patch-router-mobile-home.py
           python3 scripts/patch-openrouter-radar.py
+          python3 scripts/fix-router-app-controls.py
 
       - name: Attach Clerk token to browser API requests
         working-directory: /tmp/router-export
