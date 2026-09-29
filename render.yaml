@@ -12,5 +12,5 @@ services:
         value: https://ozaoejulipgskicmjzij.supabase.co
       - key: VITE_SUPABASE_PUBLIC_KEY
         value: sb_publishable_dkmeo3ME7cHgEcbzBzdh_Q_5kOlCBFf
-      - key: ROUTER_APP_KEY
-        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
