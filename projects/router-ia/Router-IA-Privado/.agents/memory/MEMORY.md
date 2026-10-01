@@ -1,1 +1,0 @@
-- [Router IA y entornos de Clerk](router-ia-clerk-environments.md) — Development y Production tienen propietarios separados; el primero debe iniciar sesión en cada entorno.

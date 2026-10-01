@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import {
   AlertCircle,
   ArrowRight,
+  Beaker,
   Check,
   CircleHelp,
   Code2,
@@ -22,15 +23,26 @@ import {
 } from "lucide-react";
 import {
   activateBuilderModule,
+  analyzeLabProject,
+  createBuilderProjectBuild,
+  createBuilderProjectJob,
   extractWebReference,
+  getBuilderProjectJob,
+  getBuilderProjectJobStatus,
   generateAppBlueprint,
+  reportBuilderProjectRuntimeCheck,
+  setAuthTokenGetter,
   type AppBlueprint,
   type AppBuilderExpansionProposal,
   type AppBuilderModuleId,
   type AppBuilderTurn,
+  type BuilderProjectJob,
+  type LabAnalysisInputSourceKind,
 } from "@workspace/api-client-react";
 import { RouterSettings } from "@/components/router-settings";
 import { useAuthenticatedUser } from "@/components/auth-gate";
+import { GeneratedProjectPanel } from "@/components/generated-project-panel";
+import { LaboratoryWorkspace } from "@/components/laboratory-workspace";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import {
   BUILDER_PROJECTS_STORAGE_KEY,
@@ -39,13 +51,23 @@ import {
   loadBuilderProjectCollection,
   MAX_BUILDER_SOURCES,
   MAX_BUILDER_PROJECTS,
+  sanitizeGeneratedProjectData,
   serializeBuilderProjectCollection,
   type BuilderSource,
   type BuilderProject,
   type BuilderProjectCollection,
+  type GeneratedProjectRecovery,
+  type LabProjectAnalysis,
+  type LabProjectVersion,
 } from "@/lib/builder-workspace";
 import { buildStandaloneAppHtml, downloadStandaloneApp } from "@/lib/export-blueprint";
+import { downloadGeneratedProjectZip } from "@/lib/export-generated-project";
 import { saveWorkspaceSnapshot } from "@/lib/cloud-workspaces";
+import { supabase } from "@/lib/supabase";
+import {
+  buildLabEvidenceText,
+  collectLabEvidence,
+} from "@/lib/lab-static-analysis";
 import {
   MAX_REFERENCE_FILES,
   prepareReferenceFile,
@@ -63,6 +85,8 @@ const routerTaskTypeLabels = {
   summarization: "Resumen",
   vision: "Visión",
   document: "Documento",
+  long_context: "Contexto largo",
+  fast: "Rápido",
 } as const;
 
 const examplePrompts = [
@@ -73,6 +97,29 @@ const examplePrompts = [
 
 function projectTitle(project: BuilderProject): string {
   return project.blueprint?.title || project.name || "Mi app";
+}
+
+function buildLabReconstructionPrompt(project: BuilderProject, request: string): string {
+  return [
+    project.labGoal.trim() ? `Objetivo de adaptación: ${project.labGoal.trim()}` : "",
+    `Cambio solicitado: ${request.trim()}`,
+  ].filter(Boolean).join("\n").slice(0, MAX_PROMPT_LENGTH);
+}
+
+function buildLabAnalysisContext(project: BuilderProject): AppBuilderTurn | null {
+  const analysis = project.labAnalysis;
+  if (!analysis) return null;
+  return {
+    role: "assistant",
+    content: [
+      `Análisis de referencia de ${analysis.sourceName}. Las observaciones son evidencia estática; las inferencias son hipótesis, no hechos verificados.`,
+      `Resumen: ${analysis.summary}`,
+      `Arquitectura observada: ${analysis.architecture}`,
+      `Capacidades: ${analysis.capabilities.join("; ")}`,
+      `Inferencias: ${analysis.inferred.join("; ")}`,
+      `Plan de adaptación: ${analysis.adaptationPlan.join("; ")}`,
+    ].join("\n").slice(0, MAX_PROMPT_LENGTH),
+  };
 }
 
 function appendTurn(project: BuilderProject, turn: AppBuilderTurn): BuilderProject {
@@ -93,6 +140,32 @@ function updateProject(
       project.id === projectId ? update(project) : project,
     ),
   };
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getApiErrorMessage(error: unknown): string | null {
+  if (!isRecord(error) || !isRecord(error.data) || typeof error.data.error !== "string") return null;
+  return error.data.error.slice(0, 300);
+}
+
+function isMissingGeneratedProjectJob(error: unknown): boolean {
+  return isRecord(error) && error.status === 404;
+}
+
+function isTransientGeneratedProjectJobError(error: unknown): boolean {
+  if (!isRecord(error) || typeof error.status !== "number") return true;
+  return error.status === 429 || error.status >= 500;
+}
+
+function isTerminalProjectJob(job: BuilderProjectJob): boolean {
+  return job.stage === "ready" || job.stage === "error";
 }
 
 function ConversationMessage({ turn, index }: { turn: AppBuilderTurn; index: number }) {
@@ -589,16 +662,41 @@ function AssemblyPanel({
   );
 }
 
-function ConversationalBuilder() {
+function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) {
   const { user, previewMode } = useAuthenticatedUser();
   const [routerSettingsOpen, setRouterSettingsOpen] = useState(false);
   const [projectCollection, setProjectCollection] = useState<BuilderProjectCollection>(
-    () => previewMode ? createDefaultBuilderCollection() : loadBuilderProjectCollection(),
+    () => {
+      if (previewMode) return createDefaultBuilderCollection();
+      const loaded = loadBuilderProjectCollection();
+      const selected = loaded.projects.find((project) => project.id === loaded.activeProjectId);
+      const defaultBuilderProject = loaded.projects.find((project) => project.mode === "builder");
+      return selected?.mode === "lab" && defaultBuilderProject
+        ? { ...loaded, activeProjectId: defaultBuilderProject.id }
+        : loaded;
+    },
   );
+  const projectCollectionRef = useRef(projectCollection);
+  projectCollectionRef.current = projectCollection;
+  const [generatedProjectJobs, setGeneratedProjectJobs] = useState<Record<string, BuilderProjectJob>>({});
+  const generatedProjectJobsRef = useRef<Record<string, BuilderProjectJob>>({});
+  const [generatedProjectBusyIds, setGeneratedProjectBusyIds] = useState<Set<string>>(() => new Set());
+  const generatedProjectDataRef = useRef<Record<string, Record<string, unknown>>>({});
+  const smokeTestedAttemptsRef = useRef(new Set<string>());
+  const reportedSmokeAttemptsRef = useRef(new Set<string>());
+  const artifactFetchedAttemptsRef = useRef(new Set<string>());
+  const startedWorkspaceBuildsRef = useRef(new Set<string>());
+  const [workspaceMode, setWorkspaceMode] = useState<"builder" | "lab">("builder");
   const [activeStage, setActiveStage] = useState<BuilderStage>("sources");
   const activeProject = projectCollection.projects.find(
     (project) => project.id === projectCollection.activeProjectId,
   ) ?? projectCollection.projects[0];
+  const builderProjects = projectCollection.projects.filter((project) => project.mode === "builder");
+  const labProjects = projectCollection.projects.filter((project) => project.mode === "lab");
+  const activeLabProject = activeProject.mode === "lab"
+    ? activeProject
+    : labProjects.find((project) => project.id === projectCollection.activeProjectId) ?? null;
+  const [labAnalysisBusyIds, setLabAnalysisBusyIds] = useState<Set<string>>(() => new Set());
   const [prompt, setPrompt] = useState("");
   const [promptError, setPromptError] = useState<string | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -612,10 +710,11 @@ function ConversationalBuilder() {
   const [sourceBusy, setSourceBusy] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
-  const isGenerating = pendingProjectIds.has(activeProject.id);
+  const isGenerating = pendingProjectIds.has(activeProject.id) ||
+    generatedProjectBusyIds.has(activeProject.id);
   const isActivatingModule = pendingActivationProjectIds.has(activeProject.id);
   const reusableSources = projectCollection.projects
-    .filter((project) => project.id !== activeProject.id)
+    .filter((project) => project.mode === activeProject.mode && project.id !== activeProject.id)
     .flatMap((project) => project.sources.map((source) => ({
       source,
       projectName: projectTitle(project),
@@ -675,8 +774,634 @@ function ConversationalBuilder() {
     projectId: string,
     update: (project: BuilderProject) => BuilderProject,
   ) => {
-    setProjectCollection((current) => updateProject(current, projectId, update));
+    const next = updateProject(projectCollectionRef.current, projectId, update);
+    projectCollectionRef.current = next;
+    setProjectCollection(next);
   }, []);
+
+  const persistGeneratedProjectRecovery = useCallback((
+    projectId: string,
+    recovery: GeneratedProjectRecovery | null,
+  ) => {
+    setProjectCollectionForProject(projectId, (project) => ({
+      ...project,
+      generatedProjectRecovery: recovery,
+    }));
+    if (previewMode) return;
+    try {
+      window.localStorage.setItem(
+        BUILDER_PROJECTS_STORAGE_KEY,
+        serializeBuilderProjectCollection(projectCollectionRef.current),
+      );
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [previewMode, setProjectCollectionForProject]);
+
+  const updateGeneratedProjectRecovery = useCallback((
+    projectId: string,
+    update: (recovery: GeneratedProjectRecovery) => GeneratedProjectRecovery,
+  ) => {
+    const recovery = projectCollectionRef.current.projects.find(
+      (project) => project.id === projectId,
+    )?.generatedProjectRecovery;
+    if (recovery) persistGeneratedProjectRecovery(projectId, update(recovery));
+  }, [persistGeneratedProjectRecovery]);
+
+  useEffect(() => {
+    setAuthTokenGetter(async () => {
+      if (!supabase) return null;
+      const { data, error } = await supabase.auth.getSession();
+      return error ? null : data.session?.access_token ?? null;
+    });
+    return () => setAuthTokenGetter(null);
+  }, []);
+
+  const setGeneratedProjectBusy = useCallback((projectId: string, busy: boolean) => {
+    setGeneratedProjectBusyIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(projectId);
+      else next.delete(projectId);
+      return next;
+    });
+  }, []);
+
+  const storeGeneratedProjectJob = useCallback((projectId: string, job: BuilderProjectJob) => {
+    const next = { ...generatedProjectJobsRef.current, [projectId]: job };
+    generatedProjectJobsRef.current = next;
+    setGeneratedProjectJobs(next);
+  }, []);
+
+  const persistTerminalGeneratedProject = useCallback((
+    projectId: string,
+    job: BuilderProjectJob,
+  ) => {
+    const status = job.stage === "ready" ? "ready" : "error";
+    setProjectCollectionForProject(projectId, (project) => {
+      const data = sanitizeGeneratedProjectData(project.generatedProject?.data ?? {});
+      generatedProjectDataRef.current[projectId] = data;
+      const readyFiles = status === "ready" ? job.files : null;
+      const priorFiles = project.generatedProject?.files ?? [];
+      const priorByPath = new Map(priorFiles.map((file) => [file.path, file.content]));
+      const newVersion = project.mode === "lab" &&
+        readyFiles &&
+        !project.labVersions.some((version) => version.jobId === job.id)
+        ? {
+            id: `lab-${job.id}`,
+            jobId: job.id,
+            createdAt: job.updatedAt,
+            label: `Reconstrucción ${project.labVersions.length + 1}`,
+            files: readyFiles,
+            observedFrom: project.sources.filter((source) => source.included).map((source) => source.name).slice(0, 8),
+            reconstructed: readyFiles
+              .filter((file) => !priorByPath.has(file.path))
+              .map((file) => file.path)
+              .slice(0, 12),
+            modified: readyFiles
+              .filter((file) => priorByPath.has(file.path) && priorByPath.get(file.path) !== file.content)
+              .map((file) => file.path)
+              .slice(0, 12),
+          } satisfies LabProjectVersion
+        : null;
+      const stableFiles = readyFiles ?? (
+        project.mode === "lab" && project.generatedProject?.status === "ready"
+          ? project.generatedProject.files
+          : job.files
+      );
+      return {
+        ...project,
+        ...(newVersion ? { labVersions: [newVersion, ...project.labVersions].slice(0, 4) } : {}),
+        generatedProject: {
+          files: stableFiles,
+          status: readyFiles || project.mode !== "lab" ? status : "ready",
+          diagnostics: status === "ready" ? job.diagnostics.slice(0, 12) : [
+            ...job.diagnostics.slice(0, 11),
+            job.error || job.statusMessage,
+          ].slice(0, 12),
+          data,
+        },
+        generatedProjectRecovery: status === "ready" ? null : project.generatedProjectRecovery,
+      };
+    });
+  }, [setProjectCollectionForProject]);
+
+  const trackGeneratedProjectJob = useCallback(async (
+    projectId: string,
+    initialJob: BuilderProjectJob,
+  ): Promise<BuilderProjectJob> => {
+    let currentJob = initialJob;
+    const deadline = Date.now() + 12 * 60_000;
+    let pollCount = 0;
+    storeGeneratedProjectJob(projectId, currentJob);
+    setGeneratedProjectBusy(projectId, true);
+
+    const startSavedRecovery = async (): Promise<BuilderProjectJob> => {
+      const project = projectCollectionRef.current.projects.find((item) => item.id === projectId);
+      const recovery = project?.generatedProjectRecovery;
+      if (!project || !recovery || !user || recovery.ownerId !== user.id) {
+        throw new Error("No encontré los datos guardados para recuperar este proyecto.");
+      }
+
+      let restartedJob: BuilderProjectJob;
+      if (
+        recovery.resumeWithBuild &&
+        recovery.files.length &&
+        (recovery.generationRequest?.blueprint ?? project.blueprint)
+      ) {
+        restartedJob = await createBuilderProjectBuild(projectId, {
+          blueprint: recovery.generationRequest?.blueprint ?? project.blueprint!,
+          files: recovery.files,
+        });
+      } else if (recovery.generationRequest) {
+        restartedJob = await createBuilderProjectJob(projectId, {
+          ...recovery.generationRequest,
+          files: recovery.files,
+        });
+      } else {
+        throw new Error("No hay archivos guardados suficientes para reanudar este proyecto.");
+      }
+
+      updateGeneratedProjectRecovery(projectId, (savedRecovery) => ({
+        ...savedRecovery,
+        jobId: restartedJob.id,
+        kind: restartedJob.stage === "build" ? "build" : savedRecovery.kind,
+        stage: restartedJob.stage,
+        resumeWithBuild: restartedJob.stage === "build" || savedRecovery.resumeWithBuild,
+        files: restartedJob.files.length ? restartedJob.files : savedRecovery.files,
+      }));
+      return restartedJob;
+    };
+
+    try {
+      while (Date.now() < deadline) {
+        await wait(Math.min(5_000, 1_100 + pollCount * 200));
+        pollCount += 1;
+        let status: Awaited<ReturnType<typeof getBuilderProjectJobStatus>>;
+        if (!currentJob.id) {
+          try {
+            currentJob = await startSavedRecovery();
+          } catch (error) {
+            if (isTransientGeneratedProjectJobError(error)) continue;
+            throw error;
+          }
+          storeGeneratedProjectJob(projectId, currentJob);
+          continue;
+        }
+        try {
+          status = await getBuilderProjectJobStatus(currentJob.id);
+        } catch (error) {
+          if (isMissingGeneratedProjectJob(error)) {
+            try {
+              currentJob = await startSavedRecovery();
+            } catch (recoveryError) {
+              if (isTransientGeneratedProjectJobError(recoveryError)) continue;
+              throw recoveryError;
+            }
+            storeGeneratedProjectJob(projectId, currentJob);
+            continue;
+          }
+          if (isTransientGeneratedProjectJobError(error)) continue;
+          throw error;
+        }
+        currentJob = {
+          ...currentJob,
+          id: status.id,
+          projectId: status.projectId,
+          stage: status.stage,
+          statusMessage: status.statusMessage,
+          plannedFiles: status.plannedFiles,
+          generatedFiles: status.generatedFiles,
+          fileProgress: status.fileProgress,
+          correctedFiles: status.correctedFiles,
+          codingFallbackUsed: status.codingFallbackUsed,
+          codingEscalationFiles: status.codingEscalationFiles,
+          diagnostics: status.diagnostics,
+          error: status.error,
+          attempt: status.attempt,
+          updatedAt: status.updatedAt,
+          previewHtml: status.previewReady ? currentJob.previewHtml : null,
+        };
+        storeGeneratedProjectJob(projectId, currentJob);
+
+        if (
+          status.stage === "build" ||
+          status.stage === "correction" ||
+          status.stage === "validation"
+        ) {
+          const attemptKey = `${status.id}:${status.attempt}:${status.stage}:${status.previewReady}`;
+          if (!artifactFetchedAttemptsRef.current.has(attemptKey)) {
+            let fullJob: BuilderProjectJob;
+            try {
+              fullJob = await getBuilderProjectJob(status.id);
+            } catch (error) {
+              if (isMissingGeneratedProjectJob(error)) {
+                try {
+                  currentJob = await startSavedRecovery();
+                } catch (recoveryError) {
+                  if (isTransientGeneratedProjectJobError(recoveryError)) continue;
+                  throw recoveryError;
+                }
+                storeGeneratedProjectJob(projectId, currentJob);
+                continue;
+              }
+              if (isTransientGeneratedProjectJobError(error)) continue;
+              throw error;
+            }
+            artifactFetchedAttemptsRef.current.add(attemptKey);
+            currentJob = fullJob;
+            storeGeneratedProjectJob(projectId, currentJob);
+            updateGeneratedProjectRecovery(projectId, (recovery) => ({
+              ...recovery,
+              jobId: status.id,
+              stage: status.stage,
+              files: fullJob.files,
+              resumeWithBuild:
+                status.stage === "build" || status.stage === "validation",
+            }));
+          }
+        } else {
+          updateGeneratedProjectRecovery(projectId, (recovery) => ({
+            ...recovery,
+            jobId: status.id,
+            stage: status.stage,
+          }));
+        }
+
+        if (status.stage === "ready" || status.stage === "error") {
+          try {
+            currentJob = await getBuilderProjectJob(status.id);
+          } catch (error) {
+            if (isMissingGeneratedProjectJob(error)) {
+              try {
+                currentJob = await startSavedRecovery();
+              } catch (recoveryError) {
+                if (isTransientGeneratedProjectJobError(recoveryError)) continue;
+                throw recoveryError;
+              }
+              storeGeneratedProjectJob(projectId, currentJob);
+              continue;
+            }
+            if (isTransientGeneratedProjectJobError(error)) continue;
+            throw error;
+          }
+          storeGeneratedProjectJob(projectId, currentJob);
+          persistTerminalGeneratedProject(projectId, currentJob);
+          setGeneratedProjectBusy(projectId, false);
+          return currentJob;
+        }
+      }
+      throw new Error("La compilación tardó más de lo esperado. Podés volver a intentarlo.");
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message.slice(0, 300)
+        : "No pude recuperar el estado del proyecto.";
+      currentJob = {
+        ...currentJob,
+        stage: "error",
+        statusMessage: "Se interrumpió la consulta del trabajo.",
+        diagnostics: [...currentJob.diagnostics, message].slice(0, 12),
+        previewHtml: null,
+        error: message,
+      };
+      storeGeneratedProjectJob(projectId, currentJob);
+      setRequestErrors((current) => ({ ...current, [projectId]: message }));
+      setGeneratedProjectBusy(projectId, false);
+      return currentJob;
+    }
+  }, [
+    persistTerminalGeneratedProject,
+    setGeneratedProjectBusy,
+    storeGeneratedProjectJob,
+    updateGeneratedProjectRecovery,
+    user,
+  ]);
+
+  const startGeneratedProjectJobForProject = useCallback(async (
+    projectId: string,
+    promptText: string,
+    blueprint: AppBlueprint,
+    history: AppBuilderTurn[],
+  ) => {
+    const existingJob = generatedProjectJobsRef.current[projectId];
+    if (existingJob && !isTerminalProjectJob(existingJob)) return;
+    const project = projectCollectionRef.current.projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    setGeneratedProjectBusy(projectId, true);
+    setRequestErrors((current) => {
+      const next = { ...current };
+      delete next[projectId];
+      return next;
+    });
+    const referenceFiles = project.sources
+      .filter((source) => source.included)
+      .map((source) => ({
+        name: source.payload.name,
+        kind: source.payload.kind,
+        extractedText: source.payload.extractedText.slice(0, 12_000),
+        ...(source.payload.imageDataUrl ? { imageDataUrl: source.payload.imageDataUrl } : {}),
+      }));
+    const generationRequest = {
+      mode: project.mode,
+      prompt: promptText,
+      blueprint,
+      history: history.slice(-12),
+      referenceFiles,
+    };
+    if (user) {
+      persistGeneratedProjectRecovery(projectId, {
+        ownerId: user.id,
+        jobId: null,
+        kind: "generation",
+        stage: "generation",
+        generationRequest,
+        files: project.generatedProject?.files ?? [],
+        resumeWithBuild: false,
+      });
+    }
+    try {
+      const job = await createBuilderProjectJob(projectId, {
+        ...generationRequest,
+        files: project.generatedProject?.files ?? [],
+      });
+      updateGeneratedProjectRecovery(projectId, (recovery) => ({
+        ...recovery,
+        jobId: job.id,
+        stage: job.stage,
+      }));
+      generatedProjectDataRef.current[projectId] = sanitizeGeneratedProjectData(
+        project.generatedProject?.data ?? {},
+      );
+      void trackGeneratedProjectJob(projectId, job);
+    } catch (error) {
+      const message = getApiErrorMessage(error) ?? (error instanceof Error
+        ? error.message.slice(0, 300)
+        : "No pude iniciar la generación del proyecto.");
+      setRequestErrors((current) => ({ ...current, [projectId]: message }));
+      setGeneratedProjectBusy(projectId, false);
+    }
+  }, [
+    persistGeneratedProjectRecovery,
+    setGeneratedProjectBusy,
+    trackGeneratedProjectJob,
+    updateGeneratedProjectRecovery,
+    user,
+  ]);
+
+  const startGeneratedProjectBuildForProject = useCallback(async (
+    projectId: string,
+    recoveryFiles?: GeneratedProjectRecovery["files"],
+  ) => {
+    const existingJob = generatedProjectJobsRef.current[projectId];
+    if (existingJob && !isTerminalProjectJob(existingJob)) return;
+    const project = projectCollectionRef.current.projects.find((item) => item.id === projectId);
+    const files = recoveryFiles ?? project?.generatedProject?.files ?? [];
+    if (!project?.blueprint || !files.length) return;
+
+    setGeneratedProjectBusy(projectId, true);
+    if (user) {
+      persistGeneratedProjectRecovery(projectId, {
+        ownerId: user.id,
+        jobId: null,
+        kind: "build",
+        stage: "build",
+        generationRequest: null,
+        files,
+        resumeWithBuild: true,
+      });
+    }
+    try {
+      const job = await createBuilderProjectBuild(projectId, {
+        blueprint: project.blueprint,
+        files,
+      });
+      updateGeneratedProjectRecovery(projectId, (recovery) => ({
+        ...recovery,
+        jobId: job.id,
+        stage: job.stage,
+      }));
+      generatedProjectDataRef.current[projectId] = sanitizeGeneratedProjectData(
+        project.generatedProject?.data ?? {},
+      );
+      void trackGeneratedProjectJob(projectId, job);
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message.slice(0, 300)
+        : "No pude iniciar la compilación del proyecto.";
+      setRequestErrors((current) => ({ ...current, [projectId]: message }));
+      setGeneratedProjectBusy(projectId, false);
+    }
+  }, [
+    persistGeneratedProjectRecovery,
+    setGeneratedProjectBusy,
+    trackGeneratedProjectJob,
+    updateGeneratedProjectRecovery,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (previewMode || !user) return;
+    const project = projectCollection.projects.find(
+      (item) => item.id === projectCollection.activeProjectId,
+    );
+    const recovery = project?.generatedProjectRecovery;
+    if (!project || !recovery) return;
+    if (recovery.ownerId !== user.id) {
+      persistGeneratedProjectRecovery(project.id, null);
+      return;
+    }
+    const existingJob = generatedProjectJobsRef.current[project.id];
+    if (
+      (existingJob && !isTerminalProjectJob(existingJob)) ||
+      generatedProjectBusyIds.has(project.id) ||
+      startedWorkspaceBuildsRef.current.has(project.id)
+    ) return;
+
+    startedWorkspaceBuildsRef.current.add(project.id);
+    void trackGeneratedProjectJob(project.id, {
+      id: recovery.jobId ?? "",
+      projectId: project.id,
+      stage: recovery.stage,
+      statusMessage: "Recuperando el trabajo guardado.",
+      files: recovery.files,
+      plannedFiles: [],
+      generatedFiles: [],
+      fileProgress: [],
+      correctedFiles: [],
+      codingFallbackUsed: false,
+      codingEscalationFiles: [],
+      diagnostics: [],
+      previewHtml: null,
+      error: null,
+      attempt: 0,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [
+    generatedProjectBusyIds,
+    projectCollection.activeProjectId,
+    projectCollection.projects,
+    persistGeneratedProjectRecovery,
+    previewMode,
+    trackGeneratedProjectJob,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (previewMode || !user) return;
+    for (const project of projectCollection.projects) {
+      if (
+        project.id !== projectCollection.activeProjectId ||
+        project.blueprint?.appKind !== "prototype" ||
+        project.generatedProject?.status !== "ready" ||
+        project.generatedProjectRecovery ||
+        generatedProjectJobsRef.current[project.id] ||
+        startedWorkspaceBuildsRef.current.has(project.id)
+      ) continue;
+      startedWorkspaceBuildsRef.current.add(project.id);
+      void startGeneratedProjectBuildForProject(project.id);
+    }
+  }, [
+    projectCollection.activeProjectId,
+    projectCollection.projects,
+    previewMode,
+    startGeneratedProjectBuildForProject,
+    user,
+  ]);
+
+  useEffect(() => {
+    const handleGeneratedProjectMessage = (event: MessageEvent<unknown>) => {
+      const frame = Array.from(
+        document.querySelectorAll<HTMLIFrameElement>('iframe[data-generated-project-frame="true"]'),
+      ).find((candidate) => candidate.contentWindow === event.source);
+      if (!frame || !isRecord(event.data)) return;
+
+      const projectId = frame.dataset.generatedProjectId;
+      const jobId = frame.dataset.generatedProjectJob;
+      if (!projectId || !jobId || event.data.projectId !== projectId) return;
+      const project = projectCollectionRef.current.projects.find((item) => item.id === projectId);
+      if (!project) return;
+      const job = generatedProjectJobsRef.current[projectId];
+      const matchingJob = job?.id === jobId ? job : null;
+      const isReady = matchingJob?.stage === "ready" ||
+        (!matchingJob && project.generatedProject?.status === "ready");
+      const isActiveSmoke = Boolean(
+        matchingJob?.stage === "validation" && matchingJob.previewHtml,
+      );
+      const attempt = matchingJob?.attempt ?? Number(frame.dataset.generatedProjectAttempt ?? "0");
+      const attemptKey = `${jobId}:${attempt}`;
+
+      if (event.data.type === "corex:storage:request") {
+        const requestId = event.data.requestId;
+        const action = event.data.action;
+        const key = event.data.key;
+        if (
+          typeof requestId !== "string" ||
+          requestId.length > 100 ||
+          typeof key !== "string" ||
+          !/^[A-Za-z0-9_.:-]{1,80}$/.test(key) ||
+          ["__proto__", "constructor", "prototype"].includes(key) ||
+          (action !== "get" && action !== "set")
+        ) return;
+
+        const storedData = isReady
+          ? sanitizeGeneratedProjectData(project.generatedProject?.data ?? {})
+          : sanitizeGeneratedProjectData(
+              generatedProjectDataRef.current[projectId] ?? project.generatedProject?.data ?? {},
+            );
+        let responseValue: unknown = null;
+        if (action === "get") {
+          responseValue = Object.hasOwn(storedData, key) ? storedData[key] : null;
+        } else {
+          const nextData = sanitizeGeneratedProjectData({
+            ...storedData,
+            [key]: event.data.value,
+          });
+          generatedProjectDataRef.current[projectId] = nextData;
+          responseValue = true;
+          if (isReady) {
+            setProjectCollectionForProject(projectId, (current) => ({
+              ...current,
+              generatedProject: current.generatedProject
+                ? { ...current.generatedProject, data: nextData }
+                : current.generatedProject,
+            }));
+          }
+        }
+        frame.contentWindow?.postMessage({
+          type: "corex:storage:response",
+          requestId,
+          ok: true,
+          value: responseValue,
+        }, "*");
+        return;
+      }
+
+      if (
+        event.data.type === "corex:app-ready" &&
+        isActiveSmoke &&
+        matchingJob
+      ) {
+        if (smokeTestedAttemptsRef.current.has(attemptKey)) return;
+        smokeTestedAttemptsRef.current.add(attemptKey);
+        const controlsBefore = typeof event.data.controlsBefore === "number"
+          ? event.data.controlsBefore
+          : 0;
+        if (controlsBefore < 1) {
+          if (reportedSmokeAttemptsRef.current.has(attemptKey)) return;
+          reportedSmokeAttemptsRef.current.add(attemptKey);
+          void reportBuilderProjectRuntimeCheck(jobId, {
+            ok: false,
+            message: "La vista previa no mostró controles interactivos.",
+            controlsBefore,
+            changed: false,
+          }).then((updatedJob) => {
+            storeGeneratedProjectJob(projectId, updatedJob);
+          }).catch(() => {
+            reportedSmokeAttemptsRef.current.delete(attemptKey);
+          });
+          return;
+        }
+        frame.contentWindow?.postMessage({
+          type: "corex:runtime-smoke",
+          projectId,
+        }, "*");
+        return;
+      }
+
+      if (
+        (event.data.type === "corex:app-smoke-result" || event.data.type === "corex:app-error") &&
+        isActiveSmoke &&
+        matchingJob
+      ) {
+        if (reportedSmokeAttemptsRef.current.has(attemptKey)) return;
+        reportedSmokeAttemptsRef.current.add(attemptKey);
+        const controlsBefore = typeof event.data.controlsBefore === "number"
+          ? event.data.controlsBefore
+          : 0;
+        const changed = event.data.changed === true;
+        const ok = event.data.type === "corex:app-smoke-result" &&
+          event.data.ok === true &&
+          controlsBefore > 0 &&
+          changed;
+        const message = typeof event.data.message === "string"
+          ? event.data.message.slice(0, 220)
+          : "La prueba funcional no confirmó un cambio visible.";
+        void reportBuilderProjectRuntimeCheck(jobId, {
+          ok,
+          message,
+          controlsBefore,
+          changed,
+        }).then((updatedJob) => {
+          storeGeneratedProjectJob(projectId, updatedJob);
+        }).catch(() => {
+          reportedSmokeAttemptsRef.current.delete(attemptKey);
+        });
+      }
+    };
+
+    window.addEventListener("message", handleGeneratedProjectMessage);
+    return () => window.removeEventListener("message", handleGeneratedProjectMessage);
+  }, [setProjectCollectionForProject, storeGeneratedProjectJob]);
 
   const addFilesAsSources = async (files: FileList | null) => {
     if (!files?.length || sourceBusy) return;
@@ -713,6 +1438,7 @@ function ConversationalBuilder() {
       setProjectCollectionForProject(projectId, (project) => ({
         ...project,
         sources: [...project.sources, ...additions].slice(0, MAX_BUILDER_SOURCES),
+        labAnalysis: null,
       }));
     }
     if (errors.length) {
@@ -748,6 +1474,7 @@ function ConversationalBuilder() {
       setProjectCollectionForProject(activeProject.id, (project) => ({
         ...project,
         sources: [...project.sources, source].slice(0, MAX_BUILDER_SOURCES),
+        labAnalysis: null,
       }));
       setSourceUrl("");
     } catch (error) {
@@ -758,6 +1485,251 @@ function ConversationalBuilder() {
       setSourceError(apiMessage || "No pude leer esa página. Revisá que sea pública y probá con su dirección final.");
     } finally {
       setSourceBusy(false);
+    }
+  };
+
+  const addLabWebSource = async (url: string) => {
+    const projectId = activeLabProject?.id;
+    const project = projectId
+      ? projectCollectionRef.current.projects.find((item) => item.id === projectId)
+      : null;
+    if (!project || sourceBusy || project.sources.length >= MAX_BUILDER_SOURCES) return;
+    setSourceBusy(true);
+    setSourceError(null);
+    try {
+      const result = await extractWebReference({ url });
+      const source: BuilderSource = {
+        id: crypto.randomUUID(),
+        name: result.title || new URL(result.url).hostname,
+        detail: "Página pública: texto visible extraído",
+        included: true,
+        useMode: "reference",
+        hasVisual: false,
+        wasTextTrimmed: false,
+        payload: {
+          name: (result.title || "Página web").slice(0, 160),
+          kind: "document",
+          extractedText: result.extractedText,
+        },
+      };
+      setProjectCollectionForProject(project.id, (current) => ({
+        ...current,
+        sources: [...current.sources, source].slice(0, MAX_BUILDER_SOURCES),
+        labAnalysis: null,
+      }));
+    } catch (error) {
+      const apiMessage = error && typeof error === "object" && "data" in error &&
+          error.data && typeof error.data === "object" && "error" in error.data
+        ? String(error.data.error)
+        : null;
+      setSourceError(apiMessage || "No pude leer esa página. Revisá que sea pública y probá con su dirección final.");
+    } finally {
+      setSourceBusy(false);
+    }
+  };
+
+  const updateLabProject = (
+    projectId: string,
+    updater: (project: BuilderProject) => BuilderProject,
+  ) => {
+    setProjectCollectionForProject(projectId, (project) => {
+      const next = updater(project);
+      return next.sources === project.sources ? next : { ...next, labAnalysis: null };
+    });
+  };
+
+  const analyzeLabProjectForActive = async () => {
+    const projectId = activeLabProject?.id;
+    const project = projectId
+      ? projectCollectionRef.current.projects.find((item) => item.id === projectId)
+      : null;
+    if (!project || labAnalysisBusyIds.has(project.id)) return;
+    const sources = project.sources.filter((source) => source.included);
+    if (!sources.length) {
+      setRequestErrors((current) => ({ ...current, [project.id]: "Agregá e incluí al menos una fuente antes de analizar." }));
+      return;
+    }
+
+    const evidence = collectLabEvidence(sources);
+    const sourceKind: LabAnalysisInputSourceKind = sources.length > 1
+      ? "archive"
+      : sources[0].detail.startsWith("Página pública")
+        ? "website"
+        : sources[0].payload.kind;
+    const sourceName = sources.map((source) => source.name).join(" + ").slice(0, 180);
+    const visuals = sources
+      .filter((source) => source.payload.imageDataUrl)
+      .slice(0, 3)
+      .map((source) => ({
+        sourceName: source.name.slice(0, 180),
+        imageDataUrl: source.payload.imageDataUrl!,
+      }));
+
+    setLabAnalysisBusyIds((current) => new Set(current).add(project.id));
+    setRequestErrors((current) => {
+      const next = { ...current };
+      delete next[project.id];
+      return next;
+    });
+    try {
+      const result = await analyzeLabProject({
+        sourceName,
+        sourceKind,
+        goal: project.labGoal.trim() || "Analizá la arquitectura y describí una adaptación segura a partir de la evidencia.",
+        evidenceText: buildLabEvidenceText(sources, evidence),
+        evidence,
+        ...(visuals.length ? { visuals } : {}),
+      });
+      const analysis: LabProjectAnalysis = {
+        ...result,
+        sourceName,
+        sourceKind,
+        analyzedAt: new Date().toISOString(),
+      };
+      setProjectCollectionForProject(project.id, (current) => ({
+        ...current,
+        labAnalysis: analysis,
+      }));
+    } catch (error) {
+      const apiMessage = error && typeof error === "object" && "data" in error &&
+          error.data && typeof error.data === "object" && "error" in error.data
+        ? String(error.data.error)
+        : null;
+      setRequestErrors((current) => ({
+        ...current,
+        [project.id]: apiMessage || (error instanceof Error ? error.message : "No pude analizar las fuentes."),
+      }));
+    } finally {
+      setLabAnalysisBusyIds((current) => {
+        const next = new Set(current);
+        next.delete(project.id);
+        return next;
+      });
+    }
+  };
+
+  const reconstructLabProject = async (rawPrompt: string) => {
+    const projectId = activeLabProject?.id;
+    const project = projectId
+      ? projectCollectionRef.current.projects.find((item) => item.id === projectId)
+      : null;
+    const request = rawPrompt.trim();
+    if (!project || !request || generatedProjectBusyIds.has(project.id)) return;
+    if (!project.labAnalysis) {
+      setRequestErrors((current) => ({ ...current, [project.id]: "Analizá las fuentes antes de reconstruir el proyecto." }));
+      return;
+    }
+
+    const goal = project.labGoal.trim();
+    const promptText = buildLabReconstructionPrompt(project, request);
+    const blueprint: AppBlueprint = {
+      title: project.blueprint?.title || project.name,
+      subtitle: "Reconstrucción desde evidencia estática",
+      description: goal || request,
+      accentColor: project.blueprint?.accentColor ?? "ocean",
+      appKind: "prototype",
+      sections: [{
+        id: "lab-reconstruction",
+        type: "features",
+        title: "Reconstrucción funcional",
+        description: "Proyecto nuevo generado con validación aislada y almacenamiento CoreX.",
+        actionLabel: "Guardar cambio",
+        items: [],
+      }],
+    };
+    const userTurn: AppBuilderTurn = { role: "user", content: request.slice(0, MAX_PROMPT_LENGTH) };
+    const analysisContext = buildLabAnalysisContext(project);
+    const history = [
+      ...project.messages.slice(-(analysisContext ? 10 : 11)),
+      ...(analysisContext ? [analysisContext] : []),
+      userTurn,
+    ].slice(-12);
+    setRequestErrors((current) => {
+      const next = { ...current };
+      delete next[project.id];
+      return next;
+    });
+    setProjectCollectionForProject(project.id, (current) => ({
+      ...appendTurn(current, userTurn),
+      blueprint,
+      name: project.blueprint ? current.name : blueprint.title.slice(0, 64),
+      expansionProposal: null,
+      expansionDecision: null,
+      approvedModuleId: null,
+    }));
+    await startGeneratedProjectJobForProject(project.id, promptText, blueprint, history);
+  };
+
+  const retryLabProject = () => {
+    const project = activeLabProject;
+    if (!project?.blueprint || generatedProjectBusyIds.has(project.id)) return;
+    const lastRequest = [...project.messages].reverse().find((turn) => turn.role === "user")?.content
+      || project.labGoal
+      || project.blueprint.description;
+    const lastPrompt = project.generatedProjectRecovery?.generationRequest?.prompt
+      || buildLabReconstructionPrompt(project, lastRequest);
+    const savedHistory = project.generatedProjectRecovery?.generationRequest?.history;
+    const analysisContext = buildLabAnalysisContext(project);
+    const history = savedHistory?.length
+      ? savedHistory
+      : [
+          ...project.messages.slice(-(analysisContext ? 10 : 11)),
+          ...(analysisContext ? [analysisContext] : []),
+          { role: "user" as const, content: lastRequest.slice(0, MAX_PROMPT_LENGTH) },
+        ].slice(-12);
+    void startGeneratedProjectJobForProject(
+      project.id,
+      lastPrompt,
+      project.blueprint,
+      history,
+    );
+  };
+
+  const exportLabProject = () => {
+    if (!activeLabProject) return;
+    const job = generatedProjectJobs[activeLabProject.id];
+    const files = job?.stage === "ready"
+      ? job.files
+      : activeLabProject.generatedProject?.files ?? activeLabProject.labVersions[0]?.files ?? [];
+    if (!files.length) {
+      setRequestErrors((current) => ({ ...current, [activeLabProject.id]: "Todavía no hay una reconstrucción lista para exportar." }));
+      return;
+    }
+    try {
+      downloadGeneratedProjectZip(projectTitle(activeLabProject), files);
+    } catch (error) {
+      setRequestErrors((current) => ({
+        ...current,
+        [activeLabProject.id]: error instanceof Error ? error.message : "No pude exportar el proyecto.",
+      }));
+    }
+  };
+
+  const restoreLabVersion = (version: LabProjectVersion) => {
+    const project = activeLabProject;
+    if (!project || generatedProjectBusyIds.has(project.id)) return;
+    const restored = {
+      ...version,
+      id: `restore-${crypto.randomUUID()}`,
+      jobId: `restore-${version.id}-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      label: `Restaurada · ${version.label}`,
+      reconstructed: [],
+      modified: [],
+    };
+    setProjectCollectionForProject(project.id, (current) => ({
+      ...current,
+      labVersions: [restored, ...current.labVersions].slice(0, 4),
+      generatedProject: {
+        files: version.files,
+        status: "ready",
+        diagnostics: [],
+        data: sanitizeGeneratedProjectData(current.generatedProject?.data ?? {}),
+      },
+      generatedProjectRecovery: null,
+    }));
+    if (project.blueprint) {
+      void startGeneratedProjectBuildForProject(project.id, version.files);
     }
   };
 
@@ -808,6 +1780,8 @@ function ConversationalBuilder() {
   };
 
   const selectProject = (projectId: string) => {
+    const selected = projectCollection.projects.find((project) => project.id === projectId);
+    if (selected) setWorkspaceMode(selected.mode);
     if (projectId === activeProject.id) return;
     speech.cancel();
     speech.clearError();
@@ -820,6 +1794,7 @@ function ConversationalBuilder() {
   };
 
   const createNewProject = () => {
+    setWorkspaceMode("builder");
     if (projectCollection.projects.length >= MAX_BUILDER_PROJECTS) {
       setProjectError(`Podés guardar hasta ${MAX_BUILDER_PROJECTS} apps en este navegador.`);
       return;
@@ -841,25 +1816,90 @@ function ConversationalBuilder() {
     setActiveStage("sources");
   };
 
+  const createNewLabProject = () => {
+    setWorkspaceMode("lab");
+    if (projectCollection.projects.length >= MAX_BUILDER_PROJECTS) {
+      setSourceError(`Podés guardar hasta ${MAX_BUILDER_PROJECTS} proyectos en este navegador.`);
+      return;
+    }
+    speech.cancel();
+    speech.clearError();
+    setSourceError(null);
+    const project = createBuilderProject(
+      `Laboratorio ${labProjects.length + 1}`,
+      "lab",
+    );
+    setProjectCollection((current) => current.projects.length >= MAX_BUILDER_PROJECTS
+      ? current
+      : {
+          projects: [...current.projects, project],
+          activeProjectId: project.id,
+        });
+    setPrompt("");
+    setPromptError(null);
+    setSourceUrl("");
+    setActiveStage("sources");
+  };
+
+  const showBuilderWorkspace = () => {
+    setWorkspaceMode("builder");
+    const firstBuilder = projectCollectionRef.current.projects.find((project) => project.mode === "builder");
+    if (firstBuilder) {
+      setProjectCollection((current) => ({
+        ...current,
+        activeProjectId: firstBuilder.id,
+      }));
+    }
+    setActiveStage("sources");
+  };
+
+  const showLaboratoryWorkspace = () => {
+    setWorkspaceMode("lab");
+    const firstLab = projectCollectionRef.current.projects.find((project) => project.mode === "lab");
+    if (firstLab) {
+      setProjectCollection((current) => ({
+        ...current,
+        activeProjectId: firstLab.id,
+      }));
+    }
+    setActiveStage("sources");
+  };
+
   const deleteProject = (projectId: string) => {
     const project = projectCollection.projects.find((item) => item.id === projectId);
     if (!project) return;
+    if (generatedProjectBusyIds.has(projectId)) {
+      setProjectError("Esperá a que termine la generación antes de eliminar este proyecto.");
+      return;
+    }
     const confirmed = window.confirm(
       `¿Eliminar “${projectTitle(project)}”? Se borrarán su conversación, fuentes y vista previa guardadas en este navegador.`,
     );
     if (!confirmed) return;
+    const replacementBuilder = project.mode === "builder" && builderProjects.length === 1
+      ? createBuilderProject()
+      : null;
 
     if (projectId === activeProject.id) {
       speech.cancel();
       speech.clearError();
       setPrompt("");
       setPromptError(null);
+      const nextVisibleProject = replacementBuilder ?? projectCollection.projects.find((item) =>
+        item.id !== projectId && item.mode === project.mode,
+      ) ?? projectCollection.projects.find((item) => item.id !== projectId);
+      setWorkspaceMode(nextVisibleProject?.mode ?? "builder");
     }
     setRequestErrors((current) => {
       const next = { ...current };
       delete next[projectId];
       return next;
     });
+    const nextGeneratedJobs = { ...generatedProjectJobsRef.current };
+    delete nextGeneratedJobs[projectId];
+    generatedProjectJobsRef.current = nextGeneratedJobs;
+    setGeneratedProjectJobs(nextGeneratedJobs);
+    delete generatedProjectDataRef.current[projectId];
     setPendingProjectIds((current) => {
       const next = new Set(current);
       next.delete(projectId);
@@ -867,14 +1907,16 @@ function ConversationalBuilder() {
     });
     setProjectCollection((current) => {
       const projects = current.projects.filter((item) => item.id !== projectId);
+      if (replacementBuilder) projects.push(replacementBuilder);
       if (!projects.length) {
         const starter = createBuilderProject();
+        setWorkspaceMode("builder");
         return { projects: [starter], activeProjectId: starter.id };
       }
       return {
         projects,
         activeProjectId: current.activeProjectId === projectId
-          ? projects[0].id
+          ? (replacementBuilder ?? projects.find((item) => item.mode === project.mode) ?? projects[0]).id
           : current.activeProjectId,
       };
     });
@@ -941,6 +1983,14 @@ function ConversationalBuilder() {
           ? project.name
           : (result.blueprint.title.trim().slice(0, 64) || project.name),
       }));
+      if (result.blueprint.appKind === "prototype") {
+        void startGeneratedProjectJobForProject(
+          projectId,
+          content,
+          result.blueprint,
+          [...history, userTurn],
+        );
+      }
     } catch {
       setRequestErrors((current) => ({
         ...current,
@@ -1028,8 +2078,82 @@ function ConversationalBuilder() {
     }
   };
 
+  const activeGeneratedJob = generatedProjectJobs[activeProject.id];
+  const savedGeneratedProject = activeProject.generatedProject;
+  const generatedProjectFiles = activeGeneratedJob?.files.length
+    ? activeGeneratedJob.files
+    : savedGeneratedProject?.files ?? [];
+  const showGeneratedProjectPanel = activeProject.blueprint?.appKind === "prototype" &&
+    Boolean(activeGeneratedJob || savedGeneratedProject);
+  const topbarWorkspaceMode: "builder" | "lab" = workspaceMode;
+
+  if (workspaceMode === "lab") {
+    return (
+      <LaboratoryWorkspace
+        projects={labProjects}
+        activeProject={activeLabProject}
+        job={activeLabProject ? generatedProjectJobs[activeLabProject.id] ?? null : null}
+        busy={activeLabProject ? generatedProjectBusyIds.has(activeLabProject.id) : false}
+        analysisBusy={activeLabProject ? labAnalysisBusyIds.has(activeLabProject.id) : false}
+        sourceBusy={sourceBusy}
+        sourceError={sourceError}
+        requestError={activeLabProject ? requestErrors[activeLabProject.id] ?? null : null}
+        onCreate={createNewLabProject}
+        onSelect={selectProject}
+        onDelete={deleteProject}
+        onUpdateProject={updateLabProject}
+        onAddFiles={(files) => void addFilesAsSources(files)}
+        onAddWeb={(url) => void addLabWebSource(url)}
+        onAnalyze={() => void analyzeLabProjectForActive()}
+        onGenerate={(promptText) => void reconstructLabProject(promptText)}
+        onRetry={retryLabProject}
+        onExport={exportLabProject}
+        onRestoreVersion={restoreLabVersion}
+        onShowBuilder={showBuilderWorkspace}
+      />
+    );
+  }
+
   return (
     <div className="builder-shell">
+      <div
+        className="generated-project-smoke-host"
+        aria-hidden="true"
+        style={{
+          position: "fixed",
+          left: "-10000px",
+          top: 0,
+          width: "390px",
+          height: "720px",
+          overflow: "hidden",
+          pointerEvents: "none",
+        }}
+      >
+        {Object.entries(generatedProjectJobs)
+          .filter(([, job]) => job.stage === "validation" && Boolean(job.previewHtml))
+          .map(([projectId, job]) => (
+            <iframe
+              key={`${job.id}-${job.attempt}-smoke`}
+              title={`Prueba funcional ${projectId}`}
+              srcDoc={job.previewHtml ?? ""}
+              sandbox="allow-scripts"
+              tabIndex={-1}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "390px",
+                height: "720px",
+                border: 0,
+                opacity: 0,
+                pointerEvents: "none",
+              }}
+              data-generated-project-frame="true"
+              data-generated-project-id={projectId}
+              data-generated-project-job={job.id}
+              data-generated-project-attempt={job.attempt}
+            />
+          ))}
+      </div>
       <header className="builder-topbar">
         <div className="builder-brand">
           <div className="builder-brand-mark"><Sparkles size={19} strokeWidth={2.3} /></div>
@@ -1038,29 +2162,64 @@ function ConversationalBuilder() {
             <span>Creá apps conversando</span>
           </div>
         </div>
-        <nav className="builder-stage-nav" aria-label="Etapas de creación">
-          {([
-            { id: "sources" as const, label: "Fuentes", count: activeProject.sources.length },
-            { id: "design" as const, label: "Diseño" },
-            { id: "assembly" as const, label: "Ensamble" },
-          ]).map((stage, index) => (
-            <button
-              key={stage.id}
-              type="button"
-              className={`builder-stage-nav-item ${activeStage === stage.id ? "is-active" : ""} ${stage.id === "assembly" && !activeProject.blueprint ? "is-locked" : ""}`}
-              onClick={() => setActiveStage(stage.id)}
-              disabled={stage.id === "assembly" && !activeProject.blueprint}
-              aria-current={activeStage === stage.id ? "step" : undefined}
-              title={stage.id === "assembly" && !activeProject.blueprint ? "Primero creá una vista previa" : undefined}
-              data-testid={`button-stage-${stage.id}`}
-            >
-              <span className="builder-stage-number">{index + 1}</span>
-              <span>{stage.label}</span>
-              {stage.id === "sources" && stage.count > 0 && <small>{stage.count}</small>}
-            </button>
-          ))}
-        </nav>
+        <div className="builder-workspace-switch" role="tablist" aria-label="Modo de trabajo">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={topbarWorkspaceMode === "builder"}
+            className={topbarWorkspaceMode === "builder" ? "is-active" : ""}
+            onClick={showBuilderWorkspace}
+            data-testid="button-open-builder-mode"
+          >
+            Builder
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={topbarWorkspaceMode === "lab"}
+            className={topbarWorkspaceMode === "lab" ? "is-active" : ""}
+            onClick={showLaboratoryWorkspace}
+            data-testid="button-open-laboratory-mode"
+          >
+            <Beaker size={14} /> Laboratorio
+          </button>
+        </div>
+        {workspaceMode === "builder" && (
+          <nav className="builder-stage-nav" aria-label="Etapas de creación">
+            {([
+              { id: "sources" as const, label: "Fuentes", count: activeProject.sources.length },
+              { id: "design" as const, label: "Diseño" },
+              { id: "assembly" as const, label: "Ensamble" },
+            ]).map((stage, index) => (
+              <button
+                key={stage.id}
+                type="button"
+                className={`builder-stage-nav-item ${activeStage === stage.id ? "is-active" : ""} ${stage.id === "assembly" && !activeProject.blueprint ? "is-locked" : ""}`}
+                onClick={() => setActiveStage(stage.id)}
+                disabled={stage.id === "assembly" && !activeProject.blueprint}
+                aria-current={activeStage === stage.id ? "step" : undefined}
+                title={stage.id === "assembly" && !activeProject.blueprint ? "Primero creá una vista previa" : undefined}
+                data-testid={`button-stage-${stage.id}`}
+              >
+                <span className="builder-stage-number">{index + 1}</span>
+                <span>{stage.label}</span>
+                {stage.id === "sources" && stage.count > 0 && <small>{stage.count}</small>}
+              </button>
+            ))}
+          </nav>
+        )}
         <div className="builder-topbar-right">
+          {onOpenPrisma && (
+            <button
+              type="button"
+              className="builder-settings-button"
+              onClick={onOpenPrisma}
+              aria-label="Abrir el módulo Prisma"
+              data-testid="button-open-prisma"
+            >
+              Prisma
+            </button>
+          )}
           <div className={`builder-save-status is-${saveStatus}`} aria-live="polite">
             {saveStatus === "saved" ? <Check size={14} /> : saveStatus === "saving" ? <LoaderCircle size={14} className="builder-spin" /> : saveStatus === "preview" ? <Globe size={14} /> : <CircleHelp size={14} />}
             <span>{saveStatus === "saved" ? "Guardado en la nube" : saveStatus === "saving" ? "Guardando" : saveStatus === "preview" ? "Vista previa, sin guardar" : "No se pudo sincronizar"}</span>
@@ -1097,7 +2256,7 @@ function ConversationalBuilder() {
             </button>
           </div>
           <div className="builder-project-list">
-            {projectCollection.projects.map((project) => (
+            {builderProjects.map((project) => (
               <div className="builder-project-entry" key={project.id}>
                 <button
                   type="button"
@@ -1129,7 +2288,7 @@ function ConversationalBuilder() {
           <div className="builder-sidebar-footer">
             <span className="builder-local-indicator" />
             <span>Las apps se guardan en este navegador</span>
-            <small>{projectCollection.projects.length} de {MAX_BUILDER_PROJECTS}</small>
+            <small>{builderProjects.length} de {MAX_BUILDER_PROJECTS}</small>
           </div>
         </aside>
 
@@ -1298,7 +2457,55 @@ function ConversationalBuilder() {
             </form>
           </section>
 
-          <PreviewPanel blueprint={activeProject.blueprint} appNamespace={activeProject.id} />
+          {showGeneratedProjectPanel ? (
+            <GeneratedProjectPanel
+              stage={activeGeneratedJob?.stage ?? (savedGeneratedProject?.status === "ready" ? "ready" : "error")}
+              statusMessage={activeGeneratedJob?.statusMessage ?? (
+                savedGeneratedProject?.status === "ready"
+                  ? "El proyecto está guardado. Preparando una nueva vista previa."
+                  : "El proyecto necesita una corrección."
+              )}
+              files={generatedProjectFiles}
+              plannedFiles={activeGeneratedJob?.plannedFiles ?? []}
+              generatedFiles={activeGeneratedJob?.generatedFiles ?? []}
+              fileProgress={activeGeneratedJob?.fileProgress ?? []}
+              correctedFiles={activeGeneratedJob?.correctedFiles ?? []}
+              codingFallbackUsed={activeGeneratedJob?.codingFallbackUsed ?? false}
+              codingEscalationFiles={activeGeneratedJob?.codingEscalationFiles ?? []}
+              diagnostics={activeGeneratedJob?.diagnostics ?? savedGeneratedProject?.diagnostics ?? []}
+              previewHtml={activeGeneratedJob?.stage === "ready" ? activeGeneratedJob.previewHtml : null}
+              projectId={activeProject.id}
+              jobId={activeGeneratedJob?.id ?? `saved-${activeProject.id}`}
+              attempt={activeGeneratedJob?.attempt ?? 0}
+              onDownload={() => {
+                try {
+                  downloadGeneratedProjectZip(projectTitle(activeProject), generatedProjectFiles);
+                } catch (error) {
+                  setRequestErrors((current) => ({
+                    ...current,
+                    [activeProject.id]: error instanceof Error
+                      ? error.message
+                      : "No pude exportar el proyecto.",
+                  }));
+                }
+              }}
+              onRetry={() => {
+                if (!activeProject.blueprint) return;
+                const lastPrompt = [...activeProject.messages]
+                  .reverse()
+                  .find((turn) => turn.role === "user")?.content ?? activeProject.blueprint.description;
+                void startGeneratedProjectJobForProject(
+                  activeProject.id,
+                  lastPrompt,
+                  activeProject.blueprint,
+                  activeProject.messages,
+                );
+              }}
+              busy={generatedProjectBusyIds.has(activeProject.id)}
+            />
+          ) : (
+            <PreviewPanel blueprint={activeProject.blueprint} appNamespace={activeProject.id} />
+          )}
           </>
           )}
         </main>

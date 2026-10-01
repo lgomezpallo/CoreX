@@ -16,4 +16,6 @@ export const RouterTaskType = {
   summarization: 'summarization',
   vision: 'vision',
   document: 'document',
+  long_context: 'long_context',
+  fast: 'fast',
 } as const;

@@ -10,8 +10,10 @@ import {
 import { generateBlueprintInTasks } from "../lib/builder-orchestrator";
 import { extractWebReference } from "../lib/web-reference";
 import { getValidatedAppModule } from "../lib/validated-app-modules";
+import { requireSupabaseUser } from "../lib/supabase-auth";
 
 const router: IRouter = Router();
+router.use(requireSupabaseUser);
 
 router.post("/builder/reference-url", async (req, res): Promise<void> => {
   const parsed = ExtractWebReferenceBody.safeParse(req.body);
@@ -49,6 +51,8 @@ router.post("/builder/generate", async (req, res): Promise<void> => {
   const { prompt, previousBlueprint, history, referenceFiles } = parsed.data;
   try {
     const generatedPayload = await generateBlueprintInTasks({
+      userId: req.authenticatedUserId!,
+      accessToken: req.supabaseAccessToken!,
       prompt,
       previousBlueprint,
       history,

@@ -46,6 +46,7 @@ export const AppBuilderReferenceKind = {
   code: 'code',
   archive: 'archive',
   apk: 'apk',
+  binary: 'binary',
 } as const;
 
 export interface AppBuilderReference {
@@ -235,6 +236,8 @@ export const RouterTaskType = {
   summarization: 'summarization',
   vision: 'vision',
   document: 'document',
+  long_context: 'long_context',
+  fast: 'fast',
 } as const;
 
 export interface AppBuilderTask {
@@ -256,6 +259,377 @@ export interface AppBuilderResult {
      * @maxItems 6
      */
   tasks: AppBuilderTask[];
+}
+
+/**
+ * @minLength 1
+ * @maxLength 80
+ * @pattern ^[A-Za-z0-9][A-Za-z0-9_-]*$
+ */
+export type BuilderProjectId = string;
+
+export type BuilderProjectJobId = string;
+
+export interface GeneratedProjectFile {
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  path: string;
+  /** @maxLength 70000 */
+  content: string;
+}
+
+export type BuilderProjectJobInputMode = typeof BuilderProjectJobInputMode[keyof typeof BuilderProjectJobInputMode];
+
+
+export const BuilderProjectJobInputMode = {
+  builder: 'builder',
+  lab: 'lab',
+} as const;
+
+export interface BuilderProjectJobInput {
+  mode?: BuilderProjectJobInputMode;
+  /**
+     * @minLength 3
+     * @maxLength 1600
+     */
+  prompt: string;
+  blueprint: AppBlueprint;
+  /** @maxItems 12 */
+  history: AppBuilderTurn[];
+  /** @maxItems 5 */
+  referenceFiles: AppBuilderReference[];
+  /** @maxItems 32 */
+  files: GeneratedProjectFile[];
+}
+
+export interface LabStaticEvidence {
+  /**
+     * @maxItems 80
+     * @items.maxLength 180
+     */
+  filePaths: string[];
+  /**
+     * @maxItems 80
+     * @items.maxLength 160
+     */
+  dependencies: string[];
+  /**
+     * @maxItems 40
+     * @items.maxLength 180
+     */
+  entryPoints: string[];
+  /**
+     * @maxItems 60
+     * @items.maxLength 180
+     */
+  components: string[];
+  /**
+     * @maxItems 80
+     * @items.maxLength 180
+     */
+  assets: string[];
+  /**
+     * @maxItems 100
+     * @items.maxLength 220
+     */
+  strings: string[];
+  /**
+     * @maxItems 60
+     * @items.maxLength 180
+     */
+  permissions: string[];
+  /**
+     * @maxItems 60
+     * @items.maxLength 220
+     */
+  networkCalls: string[];
+  /**
+     * @maxItems 40
+     * @items.maxLength 180
+     */
+  storage: string[];
+}
+
+export type LabAnalysisInputSourceKind = typeof LabAnalysisInputSourceKind[keyof typeof LabAnalysisInputSourceKind];
+
+
+export const LabAnalysisInputSourceKind = {
+  apk: 'apk',
+  archive: 'archive',
+  code: 'code',
+  document: 'document',
+  image: 'image',
+  website: 'website',
+  binary: 'binary',
+} as const;
+
+export interface LabVisualEvidence {
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  sourceName: string;
+  /**
+     * @maxLength 1200000
+     * @pattern ^data:image/(jpeg|png|webp);base64,
+     */
+  imageDataUrl: string;
+}
+
+export interface LabAnalysisInput {
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  sourceName: string;
+  sourceKind: LabAnalysisInputSourceKind;
+  /** @maxLength 1600 */
+  goal: string;
+  /**
+     * @minLength 1
+     * @maxLength 30000
+     */
+  evidenceText: string;
+  evidence: LabStaticEvidence;
+  /** @maxItems 3 */
+  visuals?: LabVisualEvidence[];
+}
+
+export interface LabAnalysisResult {
+  /** @maxLength 1600 */
+  summary: string;
+  /** @maxLength 1600 */
+  architecture: string;
+  /**
+     * @maxItems 12
+     * @items.maxLength 240
+     */
+  capabilities: string[];
+  observed: LabStaticEvidence;
+  /**
+     * @maxItems 12
+     * @items.maxLength 240
+     */
+  inferred: string[];
+  /**
+     * @maxItems 12
+     * @items.maxLength 240
+     */
+  reusableModules: string[];
+  /**
+     * @maxItems 10
+     * @items.maxLength 300
+     */
+  adaptationPlan: string[];
+  /**
+     * @maxItems 10
+     * @items.maxLength 240
+     */
+  risks: string[];
+  /**
+     * @maxItems 8
+     * @items.maxLength 240
+     */
+  blockedOperations: string[];
+}
+
+export interface BuilderProjectBuildInput {
+  blueprint: AppBlueprint;
+  /**
+     * @minItems 1
+     * @maxItems 32
+     */
+  files: GeneratedProjectFile[];
+}
+
+export type BuilderProjectJobStage = typeof BuilderProjectJobStage[keyof typeof BuilderProjectJobStage];
+
+
+export const BuilderProjectJobStage = {
+  planning: 'planning',
+  blueprint: 'blueprint',
+  generation: 'generation',
+  build: 'build',
+  validation: 'validation',
+  correction: 'correction',
+  ready: 'ready',
+  error: 'error',
+} as const;
+
+export type BuilderProjectFilePlanOperation = typeof BuilderProjectFilePlanOperation[keyof typeof BuilderProjectFilePlanOperation];
+
+
+export const BuilderProjectFilePlanOperation = {
+  create: 'create',
+  update: 'update',
+} as const;
+
+export interface BuilderProjectFilePlan {
+  /** @maxLength 180 */
+  path: string;
+  operation: BuilderProjectFilePlanOperation;
+  /** @maxLength 320 */
+  purpose: string;
+  /**
+     * @maxItems 20
+     * @items.maxLength 180
+     */
+  allowedImports: string[];
+  /**
+     * @maxItems 16
+     * @items.maxLength 180
+     */
+  exports: string[];
+  /**
+     * @maxItems 16
+     * @items.maxLength 320
+     */
+  propsInterfaces: string[];
+  /**
+     * @maxItems 16
+     * @items.maxLength 180
+     */
+  internalDependencies: string[];
+  /**
+     * @maxItems 10
+     * @items.maxLength 320
+     */
+  acceptanceCriteria: string[];
+}
+
+export type BuilderProjectFileProgressStatus = typeof BuilderProjectFileProgressStatus[keyof typeof BuilderProjectFileProgressStatus];
+
+
+export const BuilderProjectFileProgressStatus = {
+  planned: 'planned',
+  generating: 'generating',
+  generated: 'generated',
+  correcting: 'correcting',
+  corrected: 'corrected',
+  error: 'error',
+} as const;
+
+export interface BuilderProjectFileProgress {
+  /** @maxLength 180 */
+  path: string;
+  status: BuilderProjectFileProgressStatus;
+  /** @maxItems 3 */
+  generationTaskTypes: RouterTaskType[];
+  resolvedGenerationTaskType: RouterTaskType | null;
+  /** @maxItems 6 */
+  correctionTaskTypes: RouterTaskType[];
+  /** @maxItems 2 */
+  resolvedCorrectionTaskTypes: RouterTaskType[];
+}
+
+export interface BuilderProjectJob {
+  id: BuilderProjectJobId;
+  projectId: BuilderProjectId;
+  stage: BuilderProjectJobStage;
+  /** @maxLength 240 */
+  statusMessage: string;
+  /** @maxItems 32 */
+  files: GeneratedProjectFile[];
+  /** @maxItems 52 */
+  plannedFiles: BuilderProjectFilePlan[];
+  /**
+     * @maxItems 32
+     * @items.maxLength 180
+     */
+  generatedFiles: string[];
+  /** @maxItems 52 */
+  fileProgress: BuilderProjectFileProgress[];
+  /**
+     * @maxItems 52
+     * @items.maxLength 180
+     */
+  correctedFiles: string[];
+  codingFallbackUsed: boolean;
+  /**
+     * @maxItems 52
+     * @items.maxLength 180
+     */
+  codingEscalationFiles: string[];
+  /**
+     * @maxItems 12
+     * @items.maxLength 1000
+     */
+  diagnostics: string[];
+  /**
+     * @maxLength 1500000
+     * @nullable
+     */
+  previewHtml: string | null;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  error: string | null;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
+  attempt: number;
+  updatedAt: string;
+}
+
+export interface BuilderProjectJobStatus {
+  id: BuilderProjectJobId;
+  projectId: BuilderProjectId;
+  stage: BuilderProjectJobStage;
+  /** @maxLength 240 */
+  statusMessage: string;
+  /** @maxItems 52 */
+  plannedFiles: BuilderProjectFilePlan[];
+  /**
+     * @maxItems 32
+     * @items.maxLength 180
+     */
+  generatedFiles: string[];
+  /** @maxItems 52 */
+  fileProgress: BuilderProjectFileProgress[];
+  /**
+     * @maxItems 52
+     * @items.maxLength 180
+     */
+  correctedFiles: string[];
+  codingFallbackUsed: boolean;
+  /**
+     * @maxItems 52
+     * @items.maxLength 180
+     */
+  codingEscalationFiles: string[];
+  /**
+     * @maxItems 12
+     * @items.maxLength 1000
+     */
+  diagnostics: string[];
+  previewReady: boolean;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  error: string | null;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
+  attempt: number;
+  updatedAt: string;
+}
+
+export interface BuilderProjectRuntimeCheckInput {
+  ok: boolean;
+  /** @maxLength 240 */
+  message?: string;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  controlsBefore?: number;
+  changed?: boolean;
 }
 
 export interface AppBuilderActivationInput {
@@ -295,6 +669,159 @@ export const RouterConnectionTestInputTaskType = {
 
 export interface RouterConnectionTestInput {
   task_type: RouterConnectionTestInputTaskType;
+}
+
+export type PrismaChatMessageRole = typeof PrismaChatMessageRole[keyof typeof PrismaChatMessageRole];
+
+
+export const PrismaChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface PrismaChatMessage {
+  role: PrismaChatMessageRole;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  content: string;
+}
+
+export interface PrismaChatRequest {
+  /**
+     * @minItems 1
+     * @maxItems 60
+     */
+  messages: PrismaChatMessage[];
+}
+
+export interface PrismaChatResponse {
+  /**
+     * @minLength 1
+     * @maxLength 8000
+     */
+  message: string;
+}
+
+export type RouterProviderKind = typeof RouterProviderKind[keyof typeof RouterProviderKind];
+
+
+export const RouterProviderKind = {
+  openai: 'openai',
+  anthropic: 'anthropic',
+  gemini: 'gemini',
+  'openai-compatible': 'openai-compatible',
+  groq: 'groq',
+} as const;
+
+export interface RouterProvider {
+  id: string;
+  name: string;
+  kind: RouterProviderKind;
+  /** @nullable */
+  baseUrl: string | null;
+  model: string;
+  apiKeyPreview: string;
+  isDefault: boolean;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
+  capabilities: RouterTaskType[];
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  priority: number;
+  isActive: boolean;
+  status: string;
+  healthStatus: string;
+  /** @nullable */
+  lastTestAt: string | null;
+}
+
+export type RouterProviderInputKind = typeof RouterProviderInputKind[keyof typeof RouterProviderInputKind];
+
+
+export const RouterProviderInputKind = {
+  openai: 'openai',
+  anthropic: 'anthropic',
+  gemini: 'gemini',
+  'openai-compatible': 'openai-compatible',
+  groq: 'groq',
+} as const;
+
+export interface RouterProviderInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  kind: RouterProviderInputKind;
+  /** @maxLength 500 */
+  baseUrl?: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  model: string;
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  apiKey?: string;
+  isDefault: boolean;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
+  capabilities?: RouterTaskType[];
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  priority?: number;
+  isActive?: boolean;
+}
+
+export interface RouterProviderUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name?: string;
+  /** @maxLength 500 */
+  baseUrl?: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  model?: string;
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  apiKey?: string;
+  isDefault?: boolean;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
+  capabilities?: RouterTaskType[];
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  priority?: number;
+  isActive?: boolean;
+}
+
+export interface RouterProviderTestResult {
+  ok: boolean;
+  /** @nullable */
+  latencyMs: number | null;
+  message: string;
 }
 
 export interface ApiError {

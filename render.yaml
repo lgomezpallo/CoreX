@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: corex
+    runtime: node
+    branch: main
+    rootDir: projects/corex-replit
+    healthCheckPath: /api/healthz
+    autoDeployTrigger: "off"
+    plan: free
+    buildCommand: corepack enable && corepack prepare pnpm@10 --activate && pnpm install --frozen-lockfile && pnpm run build
+    startCommand: pnpm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: VITE_SUPABASE_URL
+        value: https://ozaoejulipgskicmjzij.supabase.co
+      - key: VITE_SUPABASE_PUBLIC_KEY
+        value: sb_publishable_dkmeo3ME7cHgEcbzBzdh_Q_5kOlCBFf
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ROUTER_IA_URL
+        value: https://router-ia.luisgomezpallo.workers.dev
+      - key: ROUTER_IA_TOKEN
+        sync: false
+      - key: PRISMA_MODULE_ENABLED
+        value: "false"
+      - key: VITE_ENABLE_PRISMA_CHAT
+        value: "false"

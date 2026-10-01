@@ -25,9 +25,22 @@ import type {
   AppBuilderActivationResult,
   AppBuilderInput,
   AppBuilderResult,
+  BuilderProjectBuildInput,
+  BuilderProjectId,
+  BuilderProjectJob,
+  BuilderProjectJobInput,
+  BuilderProjectJobStatus,
+  BuilderProjectRuntimeCheckInput,
   HealthStatus,
+  LabAnalysisInput,
+  LabAnalysisResult,
+  PrismaChatRequest,
+  PrismaChatResponse,
   RouterConnectionStatus,
   RouterConnectionTestInput,
+  RouterProvider,
+  RouterProviderInput,
+  RouterProviderUpdate,
   WebReference,
   WebReferenceInput
 } from './api.schemas';
@@ -225,6 +238,427 @@ export const useGenerateAppBlueprint = <TError = ErrorType<ApiError>,
       return useMutation(getGenerateAppBlueprintMutationOptions(options));
     }
 
+export const getCreateBuilderProjectJobUrl = (projectId: BuilderProjectId,) => {
+
+
+
+
+  return `/api/builder/projects/${projectId}/jobs`
+}
+
+/**
+ * @summary Generate or revise a React project and validate its build
+ */
+export const createBuilderProjectJob = async (projectId: BuilderProjectId,
+    builderProjectJobInput: BuilderProjectJobInput, options?: Parameters<typeof customFetch>[1]): Promise<BuilderProjectJob> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<BuilderProjectJob>(getCreateBuilderProjectJobUrl(projectId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(builderProjectJobInput)
+  }
+);}
+
+
+
+
+
+export const getCreateBuilderProjectJobMutationKey = () => ['createBuilderProjectJob'] as const;
+
+export const getCreateBuilderProjectJobMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBuilderProjectJob>>, TError,CreateBuilderProjectJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBuilderProjectJob>>, TError,CreateBuilderProjectJobMutationVariables, TContext> => {
+
+const mutationKey = getCreateBuilderProjectJobMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBuilderProjectJob>>, CreateBuilderProjectJobMutationVariables> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  createBuilderProjectJob(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBuilderProjectJobMutationResult = NonNullable<Awaited<ReturnType<typeof createBuilderProjectJob>>>
+    export type CreateBuilderProjectJobMutationBody = BodyType<BuilderProjectJobInput>
+    export type CreateBuilderProjectJobMutationError = ErrorType<ApiError>
+    export type CreateBuilderProjectJobMutationVariables = {projectId: BuilderProjectId;data: BodyType<BuilderProjectJobInput>}
+
+    /**
+ * @summary Generate or revise a React project and validate its build
+ */
+export const useCreateBuilderProjectJob = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBuilderProjectJob>>, TError,CreateBuilderProjectJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBuilderProjectJob>>,
+        TError,
+        CreateBuilderProjectJobMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateBuilderProjectJobMutationOptions(options));
+    }
+
+export const getCreateBuilderProjectBuildUrl = (projectId: BuilderProjectId,) => {
+
+
+
+
+  return `/api/builder/projects/${projectId}/builds`
+}
+
+/**
+ * @summary Rebuild a saved React project from its source files
+ */
+export const createBuilderProjectBuild = async (projectId: BuilderProjectId,
+    builderProjectBuildInput: BuilderProjectBuildInput, options?: Parameters<typeof customFetch>[1]): Promise<BuilderProjectJob> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<BuilderProjectJob>(getCreateBuilderProjectBuildUrl(projectId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(builderProjectBuildInput)
+  }
+);}
+
+
+
+
+
+export const getCreateBuilderProjectBuildMutationKey = () => ['createBuilderProjectBuild'] as const;
+
+export const getCreateBuilderProjectBuildMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBuilderProjectBuild>>, TError,CreateBuilderProjectBuildMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBuilderProjectBuild>>, TError,CreateBuilderProjectBuildMutationVariables, TContext> => {
+
+const mutationKey = getCreateBuilderProjectBuildMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBuilderProjectBuild>>, CreateBuilderProjectBuildMutationVariables> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  createBuilderProjectBuild(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBuilderProjectBuildMutationResult = NonNullable<Awaited<ReturnType<typeof createBuilderProjectBuild>>>
+    export type CreateBuilderProjectBuildMutationBody = BodyType<BuilderProjectBuildInput>
+    export type CreateBuilderProjectBuildMutationError = ErrorType<ApiError>
+    export type CreateBuilderProjectBuildMutationVariables = {projectId: BuilderProjectId;data: BodyType<BuilderProjectBuildInput>}
+
+    /**
+ * @summary Rebuild a saved React project from its source files
+ */
+export const useCreateBuilderProjectBuild = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBuilderProjectBuild>>, TError,CreateBuilderProjectBuildMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBuilderProjectBuild>>,
+        TError,
+        CreateBuilderProjectBuildMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateBuilderProjectBuildMutationOptions(options));
+    }
+
+export const getGetBuilderProjectJobUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/builder/project-jobs/${jobId}`
+}
+
+/**
+ * @summary Read the stage and result of a generated-project job
+ */
+export const getBuilderProjectJob = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<BuilderProjectJob> => {
+
+  return customFetch<BuilderProjectJob>(getGetBuilderProjectJobUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBuilderProjectJobQueryKey = (jobId: string,) => {
+    return [
+    `/api/builder/project-jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetBuilderProjectJobQueryOptions = <TData = Awaited<ReturnType<typeof getBuilderProjectJob>>, TError = ErrorType<ApiError>>(jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBuilderProjectJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBuilderProjectJobQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBuilderProjectJob>>> = ({ signal }) => getBuilderProjectJob(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBuilderProjectJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBuilderProjectJobQueryResult = NonNullable<Awaited<ReturnType<typeof getBuilderProjectJob>>>
+export type GetBuilderProjectJobQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Read the stage and result of a generated-project job
+ */
+
+export function useGetBuilderProjectJob<TData = Awaited<ReturnType<typeof getBuilderProjectJob>>, TError = ErrorType<ApiError>>(
+ jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBuilderProjectJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBuilderProjectJobQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetBuilderProjectJobStatusUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/builder/project-jobs/${jobId}/status`
+}
+
+/**
+ * @summary Read lightweight progress for a generated-project job
+ */
+export const getBuilderProjectJobStatus = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<BuilderProjectJobStatus> => {
+
+  return customFetch<BuilderProjectJobStatus>(getGetBuilderProjectJobStatusUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBuilderProjectJobStatusQueryKey = (jobId: string,) => {
+    return [
+    `/api/builder/project-jobs/${jobId}/status`
+    ] as const;
+    }
+
+
+export const getGetBuilderProjectJobStatusQueryOptions = <TData = Awaited<ReturnType<typeof getBuilderProjectJobStatus>>, TError = ErrorType<ApiError>>(jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBuilderProjectJobStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBuilderProjectJobStatusQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBuilderProjectJobStatus>>> = ({ signal }) => getBuilderProjectJobStatus(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBuilderProjectJobStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBuilderProjectJobStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getBuilderProjectJobStatus>>>
+export type GetBuilderProjectJobStatusQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Read lightweight progress for a generated-project job
+ */
+
+export function useGetBuilderProjectJobStatus<TData = Awaited<ReturnType<typeof getBuilderProjectJobStatus>>, TError = ErrorType<ApiError>>(
+ jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBuilderProjectJobStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBuilderProjectJobStatusQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReportBuilderProjectRuntimeCheckUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/builder/project-jobs/${jobId}/runtime-check`
+}
+
+/**
+ * @summary Report a sandboxed browser smoke test for a project job
+ */
+export const reportBuilderProjectRuntimeCheck = async (jobId: string,
+    builderProjectRuntimeCheckInput: BuilderProjectRuntimeCheckInput, options?: Parameters<typeof customFetch>[1]): Promise<BuilderProjectJob> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<BuilderProjectJob>(getReportBuilderProjectRuntimeCheckUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(builderProjectRuntimeCheckInput)
+  }
+);}
+
+
+
+
+
+export const getReportBuilderProjectRuntimeCheckMutationKey = () => ['reportBuilderProjectRuntimeCheck'] as const;
+
+export const getReportBuilderProjectRuntimeCheckMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reportBuilderProjectRuntimeCheck>>, TError,ReportBuilderProjectRuntimeCheckMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reportBuilderProjectRuntimeCheck>>, TError,ReportBuilderProjectRuntimeCheckMutationVariables, TContext> => {
+
+const mutationKey = getReportBuilderProjectRuntimeCheckMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reportBuilderProjectRuntimeCheck>>, ReportBuilderProjectRuntimeCheckMutationVariables> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  reportBuilderProjectRuntimeCheck(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReportBuilderProjectRuntimeCheckMutationResult = NonNullable<Awaited<ReturnType<typeof reportBuilderProjectRuntimeCheck>>>
+    export type ReportBuilderProjectRuntimeCheckMutationBody = BodyType<BuilderProjectRuntimeCheckInput>
+    export type ReportBuilderProjectRuntimeCheckMutationError = ErrorType<ApiError>
+    export type ReportBuilderProjectRuntimeCheckMutationVariables = {jobId: string;data: BodyType<BuilderProjectRuntimeCheckInput>}
+
+    /**
+ * @summary Report a sandboxed browser smoke test for a project job
+ */
+export const useReportBuilderProjectRuntimeCheck = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reportBuilderProjectRuntimeCheck>>, TError,ReportBuilderProjectRuntimeCheckMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reportBuilderProjectRuntimeCheck>>,
+        TError,
+        ReportBuilderProjectRuntimeCheckMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReportBuilderProjectRuntimeCheckMutationOptions(options));
+    }
+
 export const getActivateBuilderModuleUrl = () => {
 
 
@@ -401,6 +835,94 @@ export const useExtractWebReference = <TError = ErrorType<ApiError>,
       return useMutation(getExtractWebReferenceMutationOptions(options));
     }
 
+export const getAnalyzeLabProjectUrl = () => {
+
+
+
+
+  return `/api/lab/analyze`
+}
+
+/**
+ * @summary Analyze imported software evidence and propose a safe adaptation strategy
+ */
+export const analyzeLabProject = async (labAnalysisInput: LabAnalysisInput, options?: Parameters<typeof customFetch>[1]): Promise<LabAnalysisResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<LabAnalysisResult>(getAnalyzeLabProjectUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(labAnalysisInput)
+  }
+);}
+
+
+
+
+
+export const getAnalyzeLabProjectMutationKey = () => ['analyzeLabProject'] as const;
+
+export const getAnalyzeLabProjectMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeLabProject>>, TError,AnalyzeLabProjectMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof analyzeLabProject>>, TError,AnalyzeLabProjectMutationVariables, TContext> => {
+
+const mutationKey = getAnalyzeLabProjectMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeLabProject>>, AnalyzeLabProjectMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  analyzeLabProject(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnalyzeLabProjectMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeLabProject>>>
+    export type AnalyzeLabProjectMutationBody = BodyType<LabAnalysisInput>
+    export type AnalyzeLabProjectMutationError = ErrorType<ApiError>
+    export type AnalyzeLabProjectMutationVariables = {data: BodyType<LabAnalysisInput>}
+
+    /**
+ * @summary Analyze imported software evidence and propose a safe adaptation strategy
+ */
+export const useAnalyzeLabProject = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeLabProject>>, TError,AnalyzeLabProjectMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof analyzeLabProject>>,
+        TError,
+        AnalyzeLabProjectMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAnalyzeLabProjectMutationOptions(options));
+    }
+
 export const getGetRouterStatusUrl = () => {
 
 
@@ -478,6 +1000,384 @@ export function useGetRouterStatus<TData = Awaited<ReturnType<typeof getRouterSt
 
 
 
+export const getListRouterProvidersUrl = () => {
+
+
+
+
+  return `/api/router/providers`
+}
+
+export const listRouterProviders = async ( options?: Parameters<typeof customFetch>[1]): Promise<RouterProvider[]> => {
+
+  return customFetch<RouterProvider[]>(getListRouterProvidersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListRouterProvidersQueryKey = () => {
+    return [
+    `/api/router/providers`
+    ] as const;
+    }
+
+
+export const getListRouterProvidersQueryOptions = <TData = Awaited<ReturnType<typeof listRouterProviders>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListRouterProvidersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRouterProviders>>> = ({ signal }) => listRouterProviders({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRouterProviders>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListRouterProvidersQueryResult = NonNullable<Awaited<ReturnType<typeof listRouterProviders>>>
+export type ListRouterProvidersQueryError = ErrorType<unknown>
+
+
+
+export function useListRouterProviders<TData = Awaited<ReturnType<typeof listRouterProviders>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListRouterProvidersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateRouterProviderUrl = () => {
+
+
+
+
+  return `/api/router/providers`
+}
+
+export const createRouterProvider = async (routerProviderInput: RouterProviderInput, options?: Parameters<typeof customFetch>[1]): Promise<RouterProvider> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<RouterProvider>(getCreateRouterProviderUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(routerProviderInput)
+  }
+);}
+
+
+
+
+
+export const getCreateRouterProviderMutationKey = () => ['createRouterProvider'] as const;
+
+export const getCreateRouterProviderMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRouterProvider>>, TError,CreateRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createRouterProvider>>, TError,CreateRouterProviderMutationVariables, TContext> => {
+
+const mutationKey = getCreateRouterProviderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createRouterProvider>>, CreateRouterProviderMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createRouterProvider(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateRouterProviderMutationResult = NonNullable<Awaited<ReturnType<typeof createRouterProvider>>>
+    export type CreateRouterProviderMutationBody = BodyType<RouterProviderInput>
+    export type CreateRouterProviderMutationError = ErrorType<unknown>
+    export type CreateRouterProviderMutationVariables = {data: BodyType<RouterProviderInput>}
+
+    export const useCreateRouterProvider = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createRouterProvider>>, TError,CreateRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createRouterProvider>>,
+        TError,
+        CreateRouterProviderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateRouterProviderMutationOptions(options));
+    }
+
+export const getUpdateRouterProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/router/providers/${providerId}`
+}
+
+export const updateRouterProvider = async (providerId: string,
+    routerProviderUpdate: RouterProviderUpdate, options?: Parameters<typeof customFetch>[1]): Promise<RouterProvider> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<RouterProvider>(getUpdateRouterProviderUrl(providerId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(routerProviderUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateRouterProviderMutationKey = () => ['updateRouterProvider'] as const;
+
+export const getUpdateRouterProviderMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouterProvider>>, TError,UpdateRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateRouterProvider>>, TError,UpdateRouterProviderMutationVariables, TContext> => {
+
+const mutationKey = getUpdateRouterProviderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRouterProvider>>, UpdateRouterProviderMutationVariables> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  updateRouterProvider(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateRouterProviderMutationResult = NonNullable<Awaited<ReturnType<typeof updateRouterProvider>>>
+    export type UpdateRouterProviderMutationBody = BodyType<RouterProviderUpdate>
+    export type UpdateRouterProviderMutationError = ErrorType<unknown>
+    export type UpdateRouterProviderMutationVariables = {providerId: string;data: BodyType<RouterProviderUpdate>}
+
+    export const useUpdateRouterProvider = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouterProvider>>, TError,UpdateRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateRouterProvider>>,
+        TError,
+        UpdateRouterProviderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateRouterProviderMutationOptions(options));
+    }
+
+export const getDeleteRouterProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/router/providers/${providerId}`
+}
+
+export const deleteRouterProvider = async (providerId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteRouterProviderUrl(providerId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteRouterProviderMutationKey = () => ['deleteRouterProvider'] as const;
+
+export const getDeleteRouterProviderMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRouterProvider>>, TError,DeleteRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteRouterProvider>>, TError,DeleteRouterProviderMutationVariables, TContext> => {
+
+const mutationKey = getDeleteRouterProviderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteRouterProvider>>, DeleteRouterProviderMutationVariables> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  deleteRouterProvider(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteRouterProviderMutationResult = NonNullable<Awaited<ReturnType<typeof deleteRouterProvider>>>
+
+    export type DeleteRouterProviderMutationError = ErrorType<unknown>
+    export type DeleteRouterProviderMutationVariables = {providerId: string}
+
+    export const useDeleteRouterProvider = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRouterProvider>>, TError,DeleteRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteRouterProvider>>,
+        TError,
+        DeleteRouterProviderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteRouterProviderMutationOptions(options));
+    }
+
+export const getTestRouterProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/router/providers/${providerId}/test`
+}
+
+/**
+ * @deprecated
+ */
+export const testRouterProvider = async (providerId: string, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getTestRouterProviderUrl(providerId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getTestRouterProviderMutationKey = () => ['testRouterProvider'] as const;
+
+export const getTestRouterProviderMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testRouterProvider>>, TError,TestRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testRouterProvider>>, TError,TestRouterProviderMutationVariables, TContext> => {
+
+const mutationKey = getTestRouterProviderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testRouterProvider>>, TestRouterProviderMutationVariables> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  testRouterProvider(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestRouterProviderMutationResult = NonNullable<Awaited<ReturnType<typeof testRouterProvider>>>
+
+    export type TestRouterProviderMutationError = ErrorType<ApiError>
+    export type TestRouterProviderMutationVariables = {providerId: string}
+
+    /**
+ * @deprecated
+ */
+export const useTestRouterProvider = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testRouterProvider>>, TError,TestRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testRouterProvider>>,
+        TError,
+        TestRouterProviderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getTestRouterProviderMutationOptions(options));
+    }
+
 export const getTestRouterConnectionUrl = () => {
 
 
@@ -487,7 +1387,7 @@ export const getTestRouterConnectionUrl = () => {
 }
 
 /**
- * @summary Test the Router IA connection
+ * @summary Check Router IA health without invoking a model
  */
 export const testRouterConnection = async (routerConnectionTestInput: RouterConnectionTestInput, options?: Parameters<typeof customFetch>[1]): Promise<RouterConnectionStatus> => {
 
@@ -553,7 +1453,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TestRouterConnectionMutationVariables = {data: BodyType<RouterConnectionTestInput>}
 
     /**
- * @summary Test the Router IA connection
+ * @summary Check Router IA health without invoking a model
  */
 export const useTestRouterConnection = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testRouterConnection>>, TError,TestRouterConnectionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -564,5 +1464,93 @@ export const useTestRouterConnection = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getTestRouterConnectionMutationOptions(options));
+    }
+
+export const getSendPrismaChatUrl = () => {
+
+
+
+
+  return `/api/prisma/chat`
+}
+
+/**
+ * @summary Send a conversational message through Router IA
+ */
+export const sendPrismaChat = async (prismaChatRequest: PrismaChatRequest, options?: Parameters<typeof customFetch>[1]): Promise<PrismaChatResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PrismaChatResponse>(getSendPrismaChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(prismaChatRequest)
+  }
+);}
+
+
+
+
+
+export const getSendPrismaChatMutationKey = () => ['sendPrismaChat'] as const;
+
+export const getSendPrismaChatMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendPrismaChat>>, TError,SendPrismaChatMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendPrismaChat>>, TError,SendPrismaChatMutationVariables, TContext> => {
+
+const mutationKey = getSendPrismaChatMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendPrismaChat>>, SendPrismaChatMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendPrismaChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendPrismaChatMutationResult = NonNullable<Awaited<ReturnType<typeof sendPrismaChat>>>
+    export type SendPrismaChatMutationBody = BodyType<PrismaChatRequest>
+    export type SendPrismaChatMutationError = ErrorType<ApiError>
+    export type SendPrismaChatMutationVariables = {data: BodyType<PrismaChatRequest>}
+
+    /**
+ * @summary Send a conversational message through Router IA
+ */
+export const useSendPrismaChat = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendPrismaChat>>, TError,SendPrismaChatMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendPrismaChat>>,
+        TError,
+        SendPrismaChatMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSendPrismaChatMutationOptions(options));
     }
 

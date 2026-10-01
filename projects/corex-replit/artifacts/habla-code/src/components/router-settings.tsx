@@ -1,90 +1,62 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Check, CircleHelp, LoaderCircle, RefreshCw, X } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, CheckCircle2, CircleHelp, LoaderCircle, LogOut, RefreshCw, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuthenticatedUser } from "@/components/auth-gate";
 import {
-  getRouterStatus,
-  testRouterConnection,
+  getGetRouterStatusQueryKey,
+  useGetRouterStatus,
+  useTestRouterConnection,
 } from "@workspace/api-client-react";
 
-type RouterSnapshot = Awaited<ReturnType<typeof getRouterStatus>>;
-
-function formatTime(value: string | null): string {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("es-AR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+function apiError(error: unknown): string {
+  if (typeof error === "object" && error && "data" in error) {
+    const data = (error as { data?: { error?: string } }).data;
+    if (data?.error) return data.error;
+  }
+  return "No se pudo completar la operación. Intentá de nuevo.";
 }
 
-export function RouterSettings({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [snapshot, setSnapshot] = useState<RouterSnapshot | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [loading, setLoading] = useState(false);
+export function RouterSettings({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { user, signOut, previewMode } = useAuthenticatedUser();
+  const queryClient = useQueryClient();
+  const status = useGetRouterStatus({
+    query: { enabled: open, queryKey: getGetRouterStatusQueryKey() },
+  });
+  const test = useTestRouterConnection();
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  if (!open) return null;
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    setError(null);
     try {
-      setSnapshot(await getRouterStatus());
+      await signOut();
     } catch {
-      setLoadError("No pude leer el estado. Revisá que el servidor esté disponible.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  const runTest = async () => {
-    setTesting(true);
-    setLoadError(null);
-    try {
-      setSnapshot(await testRouterConnection({ task_type: "chat" }));
-    } catch {
-      setLoadError("No pude completar el test. Revisá la conexión e intentá de nuevo.");
-    } finally {
-      setTesting(false);
+      setError("No pude cerrar la sesión.");
+      setSigningOut(false);
     }
   };
 
-  if (!open) return null;
-
-  const statusLabel = !snapshot?.configured
-    ? "Sin configurar"
-    : snapshot.connected
-      ? "Conectado"
-      : snapshot.lastTestAt
-        ? "Sin conexión"
-        : "Sin probar";
-  const statusClass = !snapshot?.configured
-    ? "is-missing"
-    : snapshot.connected
-      ? "is-ready"
-      : "is-suspended";
+  const checkRouter = () => {
+    setNotice(null);
+    setError(null);
+    test.mutate(
+      { data: { task_type: "chat" } },
+      {
+        onSuccess: async (result) => {
+          setNotice(result.message ?? "Router IA está disponible.");
+          await queryClient.invalidateQueries({ queryKey: getGetRouterStatusQueryKey() });
+        },
+      },
+    );
+  };
 
   return (
     <div
       className="builder-provider-settings-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
     >
       <section
         className="builder-provider-settings"
@@ -95,7 +67,7 @@ export function RouterSettings({
         <header className="builder-provider-settings-header">
           <div>
             <span className="builder-provider-settings-eyebrow">AJUSTES DEL GENERADOR</span>
-            <h2 id="router-settings-title">Configuración</h2>
+            <h2 id="router-settings-title">Conexión con Router IA</h2>
           </div>
           <button type="button" onClick={onClose} aria-label="Cerrar configuración">
             <X size={18} />
@@ -103,82 +75,117 @@ export function RouterSettings({
         </header>
 
         <div className="builder-provider-settings-content">
+          <div className="builder-provider-card">
+            <div className="builder-provider-card-heading">
+              <div>
+                <h4>Cuenta</h4>
+                <p>{previewMode ? "Vista previa de desarrollo" : "Cuenta de propietario"}</p>
+              </div>
+            </div>
+            {!previewMode && (
+              <>
+                <p className="builder-provider-settings-note">{user?.email ?? "Cuenta de propietario"}</p>
+                <button
+                  type="button"
+                  className="builder-provider-test-button"
+                  onClick={() => void handleSignOut()}
+                  disabled={signingOut}
+                >
+                  <LogOut size={14} /> {signingOut ? "Saliendo…" : "Cerrar sesión"}
+                </button>
+              </>
+            )}
+          </div>
+
+          {error && (
+            <p className="builder-provider-settings-error" role="alert">
+              <AlertCircle size={15} /> {error}
+            </p>
+          )}
+
           <div className="builder-provider-list-heading">
             <div>
-              <h3>Router IA</h3>
-              <p>CoreX envía sus solicitudes al Router; este administra el modelo y el proveedor.</p>
+              <h3>Providers administrados fuera de CoreX</h3>
+              <p>CoreX envía las solicitudes de generación al Router IA configurado para el servidor.</p>
             </div>
             <button
               type="button"
               className="builder-provider-refresh"
-              onClick={() => void refresh()}
-              disabled={loading || testing}
-              aria-label="Actualizar estado"
-              title="Actualizar estado"
+              onClick={() => void status.refetch()}
+              disabled={status.isFetching}
+              aria-label="Actualizar estado de Router IA"
             >
-              {loading ? <LoaderCircle size={15} className="builder-spin" /> : <RefreshCw size={15} />}
+              {status.isFetching
+                ? <LoaderCircle size={15} className="builder-spin" />
+                : <RefreshCw size={15} />}
             </button>
           </div>
 
-          {loadError && (
+          {status.isLoading && (
+            <p className="builder-provider-settings-note" role="status">
+              <LoaderCircle size={15} className="builder-spin" /> Consultando el estado…
+            </p>
+          )}
+          {status.isError && (
             <p className="builder-provider-settings-error" role="alert">
-              <AlertCircle size={15} />{loadError}
+              <AlertCircle size={15} /> {apiError(status.error)}
             </p>
           )}
 
-          {snapshot && (
+          {!status.isLoading && !status.isError && status.data && (
             <article className="builder-provider-card">
               <div className="builder-provider-card-heading">
                 <div>
-                  <h4>Estado de conexión</h4>
-                  <p>La clave nunca se envía al navegador.</p>
+                  <h4>Router IA</h4>
+                  <p>
+                    {status.data.connected
+                      ? "API disponible"
+                      : "Disponibilidad aún no verificada"}
+                  </p>
                 </div>
-                <span className={`builder-provider-status ${statusClass}`}>{statusLabel}</span>
+                <span className={`builder-provider-status ${status.data.connected ? "" : "is-suspended"}`}>
+                  {status.data.connected ? "API disponible" : "Sin verificar"}
+                </span>
               </div>
-
-              {!snapshot.configured && (
-                <p className="builder-provider-key-hint">
-                  <CircleHelp size={14} />
-                  Configurá <code>ROUTER_APP_KEY</code> en el entorno del servidor.
+              {status.data.message && (
+                <p className="builder-provider-settings-note" role="status">{status.data.message}</p>
+              )}
+              {status.data.lastTestAt && (
+                <p className="builder-provider-settings-note">
+                  Última verificación: {new Date(status.data.lastTestAt).toLocaleString("es-AR")}
+                  {status.data.lastLatencyMs != null ? ` · ${status.data.lastLatencyMs} ms` : ""}
                 </p>
               )}
-
-              {snapshot.message && snapshot.configured && (
-                <p className="builder-provider-last-error" role="status">{snapshot.message}</p>
-              )}
-
-              {snapshot.lastTestAt && (
-                <p className="builder-provider-last-test">
-                  Último test: {formatTime(snapshot.lastTestAt)}
-                  {snapshot.lastLatencyMs !== null ? ` · ${snapshot.lastLatencyMs} ms` : ""}
-                </p>
-              )}
-
-              {snapshot.connected && (
-                <div className="builder-provider-test-result is-passed" role="status">
-                  <Check size={14} />
-                  <span><strong>La conexión funciona.</strong></span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="builder-provider-test-button"
-                onClick={() => void runTest()}
-                disabled={testing || loading}
-              >
-                {testing ? <LoaderCircle size={14} className="builder-spin" /> : null}
-                Probar conexión
-              </button>
             </article>
           )}
 
+          {test.isError && (
+            <p className="builder-provider-settings-error" role="alert">
+              <AlertCircle size={15} /> {apiError(test.error)}
+            </p>
+          )}
+          {notice && (
+            <p className="builder-provider-test-result is-passed" role="status">
+              <CheckCircle2 size={14} /> {notice}
+            </p>
+          )}
+
+          <button
+            type="button"
+            className="builder-provider-test-all"
+            onClick={checkRouter}
+            disabled={test.isPending}
+          >
+            {test.isPending
+              ? <><LoaderCircle size={15} className="builder-spin" /> Verificando…</>
+              : <><CheckCircle2 size={15} /> Verificar disponibilidad</>}
+          </button>
+
           <p className="builder-provider-settings-note">
             <CircleHelp size={14} />
-            <span>
-              <code>ROUTER_URL</code> es opcional. <code>ROUTER_APP_ID</code> también es opcional
-              y permanece en el servidor; no se transmite hasta confirmar el campo que acepta Router IA.
-            </span>
+            La verificación consulta únicamente el endpoint de salud; no valida el token ni envía prompts.
+            Configurá ROUTER_IA_URL (opcional) y ROUTER_IA_TOKEN en el servidor. Administrá los providers desde Router IA;
+            CoreX no guarda sus claves.
           </p>
         </div>
       </section>

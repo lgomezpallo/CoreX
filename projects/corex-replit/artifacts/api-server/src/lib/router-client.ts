@@ -1,174 +1,242 @@
-export const ROUTER_TASK_TYPES = [
-  "chat",
-  "coding",
-  "reasoning",
-  "summarization",
-  "vision",
-  "document",
-] as const;
+import type { RouterTaskType } from "@workspace/api-zod";
+export type { RouterTaskType } from "@workspace/api-zod";
 
-export type RouterTaskType = (typeof ROUTER_TASK_TYPES)[number];
+const DEFAULT_ROUTER_URL = "https://router-ia.luisgomezpallo.workers.dev";
+const HEALTH_TIMEOUT_MS = 5_000;
+const COMPLETION_TIMEOUT_MS = 120_000;
 
-type RouterTextContent = {
-  type: "text";
-  text: string;
+export type RouterChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } }
+  >;
 };
 
-type RouterImageContent = {
-  type: "image_url";
-  image_url: {
-    url: string;
-    detail?: "auto" | "low" | "high";
-  };
+export type CompletionOptions = {
+  maxTokens: number;
+  jsonMode: boolean;
 };
 
-export type RouterChatMessage =
-  | { role: "system" | "assistant"; content: string }
-  | { role: "user"; content: string | Array<RouterTextContent | RouterImageContent> };
-
-export type RouterConnectionStatus = {
-  configured: boolean;
+type RouterHealthState = {
   connected: boolean;
   lastTestAt: string | null;
   lastLatencyMs: number | null;
   message: string | null;
 };
 
-type CompletionOptions = {
-  maxTokens: number;
-  jsonMode: boolean;
-};
-
-const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
-const DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b";
-const REQUEST_TIMEOUT_MS = 60_000;
-
-const health = {
+let healthState: RouterHealthState = {
   connected: false,
-  lastTestAt: null as string | null,
-  lastLatencyMs: null as number | null,
-  message: null as string | null,
+  lastTestAt: null,
+  lastLatencyMs: null,
+  message: null,
 };
 
-function configurationError(): string | null {
-  if (!process.env.GROQ_API_KEY?.trim()) {
-    return "Falta configurar GROQ_API_KEY en el entorno del servidor.";
+function routerBaseUrl(): string {
+  const configuredUrl =
+    process.env.ROUTER_IA_URL?.trim() ||
+    process.env.ROUTER_URL?.trim() ||
+    DEFAULT_ROUTER_URL;
+  let parsed: URL;
+
+  try {
+    parsed = new URL(configuredUrl);
+  } catch {
+    throw new Error("ROUTER_IA_URL no es una URL válida.");
   }
-  return null;
-}
 
-function safeErrorMessage(error: unknown): string {
-  const raw = error instanceof Error
-    ? error.message
-    : "No se pudo completar la solicitud directa a Groq.";
-  const apiKey = process.env.GROQ_API_KEY?.trim();
-  return raw
-    .replace(/Bearer\s+[^\s]+/gi, "Bearer [clave oculta]")
-    .replace(/\b(?:sk|gsk|rk)_[A-Za-z0-9_-]{8,}\b/gi, "[clave oculta]")
-    .replace(apiKey || /\u0000/g, apiKey ? "[clave oculta]" : "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 220) || "Groq no respondió correctamente.";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function extractContent(payload: unknown): string {
-  if (!isRecord(payload) || !Array.isArray(payload.choices)) {
-    throw new Error("Groq devolvió una respuesta con formato inesperado.");
-  }
-  const choice = payload.choices[0];
-  if (!isRecord(choice) || !isRecord(choice.message)) {
-    throw new Error("Groq no devolvió un mensaje.");
-  }
-  const content = choice.message.content;
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Groq devolvió una respuesta vacía.");
-  }
-  return content.trim();
-}
-
-export async function createRouterCompletion(
-  _taskType: RouterTaskType,
-  messages: RouterChatMessage[],
-  options: CompletionOptions,
-): Promise<string> {
-  const configError = configurationError();
-  if (configError) throw new Error(configError);
-
-  const apiKey = process.env.GROQ_API_KEY?.trim();
-  if (!apiKey) throw new Error("Groq no está configurado.");
-
-  const model = process.env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL;
-  const response = await fetch(GROQ_CHAT_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: options.maxTokens,
-      ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
-    }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
+  const allowedPaths = new Set([
+    "",
+    "/",
+    "/api",
+    "/api/v1/chat/completions",
+  ]);
+  const localDevelopmentHost =
+    process.env.NODE_ENV !== "production" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  if (
+    (parsed.protocol !== "https:" &&
+      !(parsed.protocol === "http:" && localDevelopmentHost)) ||
+    parsed.username ||
+    parsed.password ||
+    !allowedPaths.has(parsed.pathname) ||
+    parsed.search ||
+    parsed.hash
+  ) {
     throw new Error(
-      `Groq respondió con HTTP ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ""}.`,
+      "ROUTER_IA_URL debe ser HTTPS y apuntar al origen, /api o endpoint /api/v1/chat/completions, sin credenciales ni parámetros.",
     );
   }
 
-  return extractContent(await response.json());
+  return parsed.origin;
 }
 
-export function getRouterStatus(): RouterConnectionStatus {
-  const error = configurationError();
+function routerAppKey(): string | null {
+  const appKey =
+    process.env.ROUTER_IA_TOKEN?.trim() ||
+    process.env.ROUTER_APP_KEY?.trim();
+  return appKey || null;
+}
+
+export function routerApiUrl(path: string): URL {
+  if (!path.startsWith("/api/") || path.startsWith("//")) {
+    throw new Error("La ruta de Router IA debe ser una ruta API absoluta.");
+  }
+  return new URL(path, routerBaseUrl());
+}
+
+function configurationMessage(): string | null {
+  try {
+    routerBaseUrl();
+  } catch (error) {
+    return error instanceof Error ? error.message : "La URL de Router IA no es válida.";
+  }
+
+  return routerAppKey()
+    ? null
+    : "Falta configurar ROUTER_IA_TOKEN en el servidor para habilitar las solicitudes.";
+}
+
+function finalModelText(value: string): string {
+  const finalMatch = value.match(/<final>([\s\S]*?)<\/final>/i);
+  if (finalMatch) return finalMatch[1].trim();
+  return value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+function extractCompletionText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Router IA devolvió una respuesta no válida.");
+  }
+
+  const choices = (payload as {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  }).choices;
+  const content = choices?.[0]?.message?.content;
+  if (typeof content !== "string") {
+    throw new Error("Router IA no devolvió texto.");
+  }
+
+  const text = finalModelText(content);
+  if (!text) throw new Error("Router IA devolvió una respuesta vacía.");
+  return text;
+}
+
+function jsonModeMessages(messages: RouterChatMessage[]): RouterChatMessage[] {
+  const instruction =
+    "Respondé únicamente con un objeto JSON válido, sin bloques Markdown ni texto adicional.";
+  const firstSystemIndex = messages.findIndex((message) => message.role === "system");
+  if (firstSystemIndex < 0) {
+    return [{ role: "system", content: instruction }, ...messages];
+  }
+
+  return messages.map((message, index) =>
+    index === firstSystemIndex && typeof message.content === "string"
+      ? { ...message, content: `${message.content}\n\n${instruction}` }
+      : message,
+  );
+}
+
+export function getRouterStatus() {
+  const configurationError = configurationMessage();
   return {
-    configured: error === null,
-    connected: error === null && health.connected,
-    lastTestAt: health.lastTestAt,
-    lastLatencyMs: health.lastLatencyMs,
-    message: error ?? health.message,
+    configured: configurationError === null,
+    connected: healthState.connected,
+    lastTestAt: healthState.lastTestAt,
+    lastLatencyMs: healthState.lastLatencyMs,
+    message: configurationError ?? healthState.message,
   };
 }
 
-export async function testRouterConnection(
-  taskType: RouterTaskType,
-): Promise<RouterConnectionStatus> {
-  const configError = configurationError();
+/**
+ * Checks only the Router health endpoint. It never sends a prompt or contacts
+ * a model/provider, so this check cannot trigger an inference charge.
+ */
+export async function testRouterConnection(_taskType: RouterTaskType) {
   const startedAt = Date.now();
-
-  if (configError) {
-    health.connected = false;
-    health.lastLatencyMs = null;
-    health.message = configError;
-    return getRouterStatus();
-  }
-  health.lastTestAt = new Date().toISOString();
+  const testedAt = new Date().toISOString();
 
   try {
-    await createRouterCompletion(
-      taskType,
-      [
-        { role: "system", content: "Respondé exactamente con la palabra OK." },
-        { role: "user", content: "Prueba de conexión directa de CoreX." },
-      ],
-      { maxTokens: 32, jsonMode: false },
-    );
-    health.connected = true;
-    health.lastLatencyMs = Math.max(0, Math.round(Date.now() - startedAt));
-    health.message = null;
+    const response = await fetch(routerApiUrl("/api/healthz"), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      redirect: "error",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Router IA respondió con HTTP ${response.status}.`);
+    }
+
+    healthState = {
+      connected: true,
+      lastTestAt: testedAt,
+      lastLatencyMs: Math.max(0, Date.now() - startedAt),
+      message: routerAppKey()
+        ? "Router IA está disponible. El token no se validó; no se consultaron modelos ni providers."
+        : "Router IA está disponible; falta ROUTER_IA_TOKEN para enviar solicitudes.",
+    };
   } catch (error) {
-    health.connected = false;
-    health.lastLatencyMs = Math.max(0, Math.round(Date.now() - startedAt));
-    health.message = safeErrorMessage(error);
+    healthState = {
+      connected: false,
+      lastTestAt: testedAt,
+      lastLatencyMs: Math.max(0, Date.now() - startedAt),
+      message: error instanceof Error
+        ? error.message.slice(0, 220)
+        : "No se pudo comprobar la disponibilidad de Router IA.",
+    };
   }
 
   return getRouterStatus();
+}
+
+/**
+ * Routes all CoreX model requests through the separately hosted Router IA.
+ * The Supabase user token is intentionally not accepted or forwarded here;
+ * Router authentication uses only its server-side app key.
+ */
+export async function createRouterCompletion(
+  taskType: RouterTaskType,
+  messages: RouterChatMessage[],
+  options: CompletionOptions,
+): Promise<string> {
+  const appKey = routerAppKey();
+  if (!appKey) {
+    throw new Error("Router IA no está configurado: falta ROUTER_IA_TOKEN en el servidor.");
+  }
+
+  const requestMessages = options.jsonMode ? jsonModeMessages(messages) : messages;
+  const endpoint = routerApiUrl("/api/v1/chat/completions");
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${appKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        task_type: taskType,
+        messages: requestMessages,
+        max_tokens: options.maxTokens,
+        stream: false,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(COMPLETION_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error("No se pudo conectar con Router IA.");
+  }
+
+  if (!response.ok) {
+    throw new Error(`Router IA respondió con HTTP ${response.status}.`);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Router IA devolvió una respuesta no válida.");
+  }
+
+  return extractCompletionText(payload);
 }

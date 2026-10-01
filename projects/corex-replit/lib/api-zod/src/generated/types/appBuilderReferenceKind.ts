@@ -15,4 +15,5 @@ export const AppBuilderReferenceKind = {
   code: 'code',
   archive: 'archive',
   apk: 'apk',
+  binary: 'binary',
 } as const;

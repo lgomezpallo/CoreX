@@ -1,12 +1,15 @@
 import { unzipSync } from 'fflate';
 import type { AppBuilderReference } from '@workspace/api-client-react';
+import { formatAndroidManifestSummary, parseAndroidManifest } from './android-manifest';
 
 export const MAX_REFERENCE_FILES = 5;
 export const REFERENCE_FILE_ACCEPT = [
   '.apk', '.zip', '.pdf', '.docx', '.pptx', '.xlsx',
   '.png', '.jpg', '.jpeg', '.webp',
-  '.txt', '.md', '.csv', '.json', '.xml', '.html', '.css',
+  '.txt', '.md', '.csv', '.json', '.xml', '.html', '.css', '.py',
   '.js', '.jsx', '.ts', '.tsx', '.yaml', '.yml', '.sql', '.svg',
+  '.java', '.kt', '.swift', '.go', '.rs', '.sh',
+  '.exe', '.dll', '.so', '.dylib', '.bin', '.elf', '.jar', '.class',
 ].join(',');
 
 export type ReferenceAttachment = {
@@ -26,9 +29,11 @@ const MAX_IMAGE_DATA_URL = 1_200_000;
 
 const textExtensions = new Set([
   'txt', 'md', 'csv', 'json', 'xml', 'html', 'css', 'js', 'jsx',
-  'ts', 'tsx', 'yaml', 'yml', 'sql', 'svg',
+  'ts', 'tsx', 'yaml', 'yml', 'sql', 'svg', 'py', 'java', 'kt',
+  'swift', 'go', 'rs', 'sh',
 ]);
 const imageExtensions = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const binaryExtensions = new Set(['exe', 'dll', 'so', 'dylib', 'bin', 'elf', 'jar', 'class']);
 const archiveCodeExtensions = new Set([
   ...textExtensions,
   'java', 'kt', 'swift', 'py', 'go', 'rs', 'sh',
@@ -160,6 +165,11 @@ function printableBinaryStrings(bytes: Uint8Array): string[] {
   return [...strings].slice(0, 100);
 }
 
+function staticEndpoints(text: string): string[] {
+  return [...new Set(text.match(/https?:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{5,240}/g) ?? [])]
+    .slice(0, 40);
+}
+
 async function firstArchiveImage(entries: Record<string, Uint8Array>): Promise<string | undefined> {
   const match = Object.entries(entries).find(([path]) => archiveImageMime(path));
   if (!match) return undefined;
@@ -248,7 +258,8 @@ async function prepareArchive(file: File, isApk: boolean): Promise<ReferenceAtta
   const entries = await selectedArchiveEntries(file, (path) => {
     if (isApk) {
       if (imageExtensions.has(extensionOf(path)) && /(^|\/)(mipmap|drawable)[^/]*\//i.test(path) && /(launcher|app[_-]?icon|ic[_-]?logo)/i.test(path)) return true;
-      if (/^(AndroidManifest\.xml|classes\d*\.dex)$/i.test(path)) return true;
+      if (/^(AndroidManifest\.xml|classes\d*\.dex|resources\.arsc)$/i.test(path)) return true;
+      if (/^lib\/[^/]+\/[^/]+\.so$/i.test(path)) return true;
       return /^assets\/.+\.(html|css|js|json|txt|md)$/i.test(path) ||
         /^res\/(layout|menu|navigation|xml|values)[^/]*\/.+\.xml$/i.test(path);
     }
@@ -258,18 +269,24 @@ async function prepareArchive(file: File, isApk: boolean): Promise<ReferenceAtta
   const entryNames = Object.keys(entries);
   const textFiles = Object.entries(entries)
     .filter(([path]) => isApk
-      ? archiveCodeExtensions.has(extensionOf(path)) || /^(AndroidManifest\.xml|classes\d*\.dex)$/i.test(path)
+      ? archiveCodeExtensions.has(extensionOf(path)) || /^(AndroidManifest\.xml|classes\d*\.dex|resources\.arsc)$/i.test(path)
       : archiveCodeExtensions.has(extensionOf(path)))
     .slice(0, 18)
     .map(([path, bytes]) => {
-      if (isApk && /^(AndroidManifest\.xml|classes\d*\.dex)$/i.test(path)) {
+      if (isApk && path === 'AndroidManifest.xml') {
+        const manifest = parseAndroidManifest(bytes);
+        return manifest
+          ? formatAndroidManifestSummary(manifest)
+          : 'AndroidManifest.xml fue encontrado, pero no se pudo decodificar con este analizador estático.';
+      }
+      if (isApk && (/^classes\d*\.dex$/i.test(path) || path === 'resources.arsc')) {
         const strings = printableBinaryStrings(bytes);
         return `Cadenas estáticas recuperadas de ${path} (pueden estar incompletas; no demuestran que una función se ejecute):\n${strings.join('\n')}`;
       }
       return `Archivo ${path}:\n${new TextDecoder().decode(bytes)}`;
     });
   const extractedText = isApk
-    ? `APK analizado de forma estática; no se ejecutó ni se descompiló en código fuente. Se revisaron nombres y textos de recursos de interfaz, algunas cadenas legibles del manifiesto/DEX y recursos web seleccionados: ${entryNames.join(', ') || 'no se encontraron recursos reconocibles'}.\n${textFiles.join('\n\n')}\nLos nombres y cadenas sueltas no prueban flujos ni servicios. Para describir pantallas con más precisión, adjuntá también capturas.`
+    ? `APK analizado de forma estática; no se ejecutó ni se descompiló en código fuente. Se revisó una selección acotada de estructura, manifiesto, permisos, componentes Android, bibliotecas nativas, assets, recursos de interfaz y cadenas legibles: ${entryNames.join(', ') || 'no se encontraron recursos reconocibles'}.\n${textFiles.join('\n\n')}\nEndpoints visibles en las cadenas seleccionadas: ${staticEndpoints(textFiles.join('\n')).join(', ') || 'no se detectaron URLs HTTP visibles'}.\nLos nombres y cadenas sueltas no prueban que una función se ejecute ni que un endpoint esté activo. Para describir pantallas con más precisión, adjuntá también capturas.`
     : `Archivos incluidos en el ZIP: ${entryNames.join(', ')}.\n${textFiles.join('\n\n')}`;
   const imageDataUrl = await firstArchiveImage(entries);
   if (!textFiles.length && !imageDataUrl) {
@@ -313,6 +330,23 @@ export async function prepareReferenceFile(file: File): Promise<ReferenceAttachm
     const text = await file.text();
     if (!text.trim()) throw new Error('El archivo no contiene texto para usar como referencia.');
     return makeAttachment(file, 'code', `Contenido de referencia:\n${text}`, 'Texto o código listo para usar como referencia');
+  }
+
+  if (binaryExtensions.has(extension)) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const strings = printableBinaryStrings(bytes);
+    const endpoints = staticEndpoints(strings.join('\n'));
+    return makeAttachment(
+      file,
+      'binary',
+      [
+        'Archivo binario analizado de forma estática; no se ejecutó ni se instaló.',
+        `Tipo de archivo: .${extension}.`,
+        `Cadenas legibles recuperadas (pueden ser incompletas):\n${strings.join('\n') || 'No se encontraron cadenas imprimibles.'}`,
+        `URLs visibles: ${endpoints.join(', ') || 'No se detectaron URLs HTTP visibles.'}`,
+      ].join('\n\n'),
+      'Binario: cadenas y URLs visibles; sin ejecución',
+    );
   }
 
   throw new Error('Ese formato todavía no está soportado.');

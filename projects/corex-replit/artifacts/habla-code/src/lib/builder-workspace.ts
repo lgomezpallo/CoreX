@@ -5,6 +5,8 @@ import type {
   AppBuilderReference,
   AppBuilderTask,
   AppBuilderTurn,
+  LabAnalysisInputSourceKind,
+  LabAnalysisResult,
 } from "@workspace/api-client-react";
 import type { ReferenceAttachment } from "./reference-files";
 
@@ -13,6 +15,10 @@ export const MAX_BUILDER_PROJECTS = 12;
 export const MAX_BUILDER_SOURCES = 5;
 const MAX_SAVED_TURNS = 60;
 const MAX_SAVED_SOURCE_TEXT = 5000;
+export const MAX_GENERATED_PROJECT_FILES = 32;
+export const MAX_GENERATED_PROJECT_FILE_CHARS = 70_000;
+export const MAX_GENERATED_PROJECT_CHARS = 140_000;
+export const MAX_GENERATED_PROJECT_DATA_CHARS = 20_000;
 
 export type BuilderSource = ReferenceAttachment & {
   included: boolean;
@@ -21,9 +27,59 @@ export type BuilderSource = ReferenceAttachment & {
   wasTextTrimmed: boolean;
 };
 
+export type GeneratedProjectFile = {
+  path: string;
+  content: string;
+};
+
+export type GeneratedProjectWorkspace = {
+  files: GeneratedProjectFile[];
+  status: "ready" | "error";
+  diagnostics: string[];
+  data: Record<string, unknown>;
+};
+
+export type LabProjectAnalysis = LabAnalysisResult & {
+  sourceName: string;
+  sourceKind: LabAnalysisInputSourceKind;
+  analyzedAt: string;
+};
+
+export type LabProjectVersion = {
+  id: string;
+  createdAt: string;
+  label: string;
+  jobId?: string;
+  files: GeneratedProjectFile[];
+  observedFrom: string[];
+  reconstructed: string[];
+  modified: string[];
+};
+
+export type GeneratedProjectRecovery = {
+  ownerId: string;
+  jobId: string | null;
+  kind: "generation" | "build";
+  stage: "planning" | "blueprint" | "generation" | "build" | "validation" | "correction" | "ready" | "error";
+  generationRequest: {
+    mode?: BuilderProject["mode"];
+    prompt: string;
+    blueprint: AppBlueprint;
+    history: AppBuilderTurn[];
+    referenceFiles: Array<{
+      name: string;
+      kind: AppBuilderReference["kind"];
+      extractedText: string;
+    }>;
+  } | null;
+  files: GeneratedProjectFile[];
+  resumeWithBuild: boolean;
+};
+
 export type BuilderProject = {
   id: string;
   name: string;
+  mode: "builder" | "lab";
   messages: AppBuilderTurn[];
   blueprint: AppBlueprint | null;
   taskPlan: AppBuilderTask[];
@@ -31,6 +87,11 @@ export type BuilderProject = {
   expansionDecision: "pending" | "approved" | "declined" | "unavailable" | null;
   approvedModuleId: AppBuilderModuleId | null;
   sources: BuilderSource[];
+  generatedProject: GeneratedProjectWorkspace | null;
+  generatedProjectRecovery: GeneratedProjectRecovery | null;
+  labGoal: string;
+  labAnalysis: LabProjectAnalysis | null;
+  labVersions: LabProjectVersion[];
 };
 
 export type BuilderProjectCollection = {
@@ -40,6 +101,245 @@ export type BuilderProjectCollection = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+const GENERATED_TEMPLATE_PATHS = new Set([
+  "index.html",
+  "package.json",
+  "README.md",
+  "tsconfig.json",
+  "vite.config.ts",
+  "src/App.tsx",
+  "src/main.tsx",
+  "src/styles.css",
+  "src/lib/corex.ts",
+]);
+
+function isSafeGeneratedProjectPath(filePath: string): boolean {
+  if (
+    !filePath ||
+    filePath.length > 180 ||
+    filePath.startsWith("/") ||
+    filePath.includes("\\") ||
+    filePath.split("/").some((part) => !part || part === "." || part === ".." || part.startsWith("."))
+  ) return false;
+  if (GENERATED_TEMPLATE_PATHS.has(filePath)) return true;
+  return /^src\/(?:components|features|lib|types)\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\.(?:tsx?|css|svg|json)$/.test(filePath);
+}
+
+function sanitizeGeneratedFiles(value: unknown): GeneratedProjectFile[] {
+  if (!Array.isArray(value)) return [];
+  const files: GeneratedProjectFile[] = [];
+  const seenPaths = new Set<string>();
+  let totalChars = 0;
+  for (const item of value) {
+    if (
+      !isRecord(item) ||
+      typeof item.path !== "string" ||
+      typeof item.content !== "string" ||
+      !isSafeGeneratedProjectPath(item.path) ||
+      item.content.length > MAX_GENERATED_PROJECT_FILE_CHARS ||
+      seenPaths.has(item.path)
+    ) continue;
+    if (totalChars + item.content.length > MAX_GENERATED_PROJECT_CHARS) break;
+    seenPaths.add(item.path);
+    totalChars += item.content.length;
+    files.push({ path: item.path, content: item.content });
+    if (files.length >= MAX_GENERATED_PROJECT_FILES) break;
+  }
+  return files;
+}
+
+function sanitizeJsonValue(value: unknown, depth = 0): unknown {
+  if (depth > 5) return null;
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) return value;
+  if (typeof value === "string") return value.slice(0, 4000);
+  if (Array.isArray(value)) {
+    return value.slice(0, 100).map((item) => sanitizeJsonValue(item, depth + 1));
+  }
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value)
+    .filter(([key]) =>
+      key.length > 0 &&
+      key.length <= 80 &&
+      !["__proto__", "constructor", "prototype"].includes(key),
+    )
+    .slice(0, 60);
+  return Object.fromEntries(
+    entries.map(([key, item]) => [key, sanitizeJsonValue(item, depth + 1)]),
+  );
+}
+
+export function sanitizeGeneratedProjectData(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const sanitized = sanitizeJsonValue(value);
+  if (!isRecord(sanitized)) return {};
+  let data = sanitized;
+  while (JSON.stringify(data).length > MAX_GENERATED_PROJECT_DATA_CHARS) {
+    const keys = Object.keys(data);
+    if (!keys.length) return {};
+    data = Object.fromEntries(keys.slice(0, -1).map((key) => [key, data[key]]));
+  }
+  return data;
+}
+
+function sanitizeGeneratedProject(value: unknown): GeneratedProjectWorkspace | null {
+  if (!isRecord(value)) return null;
+  const files = sanitizeGeneratedFiles(value.files);
+  if (!files.length) return null;
+  return {
+    files,
+    status: value.status === "ready" ? "ready" : "error",
+    diagnostics: Array.isArray(value.diagnostics)
+      ? value.diagnostics
+        .filter((item): item is string => typeof item === "string")
+        .slice(0, 12)
+        .map((item) => item.slice(0, 1000))
+      : [],
+    data: sanitizeGeneratedProjectData(value.data),
+  };
+}
+
+function sanitizeStringList(value: unknown, count: number, length: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .slice(0, count)
+    .map((item) => item.trim().slice(0, length));
+}
+
+function sanitizeLabAnalysis(value: unknown): LabProjectAnalysis | null {
+  if (
+    !isRecord(value) ||
+    typeof value.sourceName !== "string" ||
+    typeof value.analyzedAt !== "string" ||
+    !["apk", "archive", "code", "document", "image", "website"].includes(String(value.sourceKind)) ||
+    !isRecord(value.observed)
+  ) return null;
+  const evidence = value.observed;
+  return {
+    sourceName: value.sourceName.slice(0, 180),
+    sourceKind: value.sourceKind as LabAnalysisInputSourceKind,
+    analyzedAt: value.analyzedAt.slice(0, 40),
+    summary: typeof value.summary === "string" ? value.summary.slice(0, 1600) : "",
+    architecture: typeof value.architecture === "string" ? value.architecture.slice(0, 1600) : "",
+    capabilities: sanitizeStringList(value.capabilities, 12, 240),
+    observed: {
+      filePaths: sanitizeStringList(evidence.filePaths, 80, 180),
+      dependencies: sanitizeStringList(evidence.dependencies, 80, 160),
+      entryPoints: sanitizeStringList(evidence.entryPoints, 40, 180),
+      components: sanitizeStringList(evidence.components, 60, 180),
+      assets: sanitizeStringList(evidence.assets, 80, 180),
+      strings: sanitizeStringList(evidence.strings, 100, 220),
+      permissions: sanitizeStringList(evidence.permissions, 60, 180),
+      networkCalls: sanitizeStringList(evidence.networkCalls, 60, 220),
+      storage: sanitizeStringList(evidence.storage, 40, 180),
+    },
+    inferred: sanitizeStringList(value.inferred, 12, 240),
+    reusableModules: sanitizeStringList(value.reusableModules, 12, 240),
+    adaptationPlan: sanitizeStringList(value.adaptationPlan, 10, 300),
+    risks: sanitizeStringList(value.risks, 10, 240),
+    blockedOperations: sanitizeStringList(value.blockedOperations, 8, 240),
+  };
+}
+
+function sanitizeLabVersions(value: unknown): LabProjectVersion[] {
+  if (!Array.isArray(value)) return [];
+  const versions: LabProjectVersion[] = [];
+  for (const item of value) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.createdAt !== "string" ||
+      typeof item.label !== "string"
+    ) continue;
+    const files = sanitizeGeneratedFiles(item.files);
+    if (!files.length) continue;
+    versions.push({
+      id: item.id.slice(0, 80),
+      createdAt: item.createdAt.slice(0, 40),
+      label: item.label.slice(0, 120),
+      ...(typeof item.jobId === "string" ? { jobId: item.jobId.slice(0, 100) } : {}),
+      files,
+      observedFrom: sanitizeStringList(item.observedFrom, 8, 180),
+      reconstructed: sanitizeStringList(item.reconstructed, 12, 240),
+      modified: sanitizeStringList(item.modified, 12, 240),
+    });
+    if (versions.length >= 4) break;
+  }
+  return versions;
+}
+
+function sanitizeGeneratedProjectRecovery(value: unknown): GeneratedProjectRecovery | null {
+  if (
+    !isRecord(value) ||
+    typeof value.ownerId !== "string" ||
+    !value.ownerId.trim() ||
+    (value.kind !== "generation" && value.kind !== "build")
+  ) return null;
+
+  const stages: GeneratedProjectRecovery["stage"][] = [
+    "planning",
+    "blueprint",
+    "generation",
+    "build",
+    "validation",
+    "correction",
+    "ready",
+    "error",
+  ];
+  const stage = stages.includes(value.stage as GeneratedProjectRecovery["stage"])
+    ? value.stage as GeneratedProjectRecovery["stage"]
+    : value.kind === "build" ? "build" : "generation";
+  let generationRequest: GeneratedProjectRecovery["generationRequest"] = null;
+  if (value.kind === "generation" && isRecord(value.generationRequest)) {
+    const request = value.generationRequest;
+    const blueprint = normalizeBlueprint(request.blueprint);
+    if (
+      typeof request.prompt === "string" &&
+      blueprint &&
+      Array.isArray(request.history) &&
+      Array.isArray(request.referenceFiles)
+    ) {
+      const referenceFiles = request.referenceFiles.flatMap((reference) => {
+        if (
+          !isRecord(reference) ||
+          typeof reference.name !== "string" ||
+          typeof reference.extractedText !== "string" ||
+          !["image", "document", "code", "archive", "apk", "binary"].includes(String(reference.kind))
+        ) return [];
+        return [{
+          name: reference.name.slice(0, 160),
+          kind: reference.kind as AppBuilderReference["kind"],
+          extractedText: reference.extractedText.slice(0, 12_000),
+        }];
+      }).slice(0, MAX_BUILDER_SOURCES);
+      generationRequest = {
+        ...(request.mode === "lab" ? { mode: "lab" as const } : {}),
+        prompt: request.prompt.slice(0, 1600),
+        blueprint,
+        history: sanitizeMessages(request.history).slice(-12),
+        referenceFiles,
+      };
+    }
+  }
+  if (value.kind === "generation" && !generationRequest) return null;
+
+  const files = sanitizeGeneratedFiles(value.files);
+  if (value.kind === "build" && !files.length) return null;
+  return {
+    ownerId: value.ownerId.trim().slice(0, 180),
+    jobId: typeof value.jobId === "string" && value.jobId.length <= 80 ? value.jobId : null,
+    kind: value.kind,
+    stage,
+    generationRequest,
+    files,
+    resumeWithBuild: value.resumeWithBuild === true && files.length > 0,
+  };
 }
 
 function isBlueprint(value: unknown): value is AppBlueprint {
@@ -195,7 +495,7 @@ function sanitizeSources(value: unknown): BuilderSource[] {
       typeof item.detail !== "string" ||
       typeof payload.name !== "string" ||
       typeof payload.extractedText !== "string" ||
-      !["image", "document", "code", "archive", "apk"].includes(String(kind))
+      !["image", "document", "code", "archive", "apk", "binary"].includes(String(kind))
     ) continue;
 
     const imageDataUrl = typeof payload.imageDataUrl === "string"
@@ -230,6 +530,7 @@ function sanitizeProject(value: unknown): BuilderProject | null {
   return {
     id: value.id.trim().slice(0, 80),
     name,
+    mode: value.mode === "lab" ? "lab" : "builder",
     messages: sanitizeMessages(value.messages),
     blueprint: normalizeBlueprint(value.blueprint),
     taskPlan: sanitizeTaskPlan(value.taskPlan),
@@ -247,6 +548,11 @@ function sanitizeProject(value: unknown): BuilderProject | null {
         ? value.approvedModuleId as AppBuilderModuleId
         : null,
     sources: sanitizeSources(value.sources),
+    generatedProject: sanitizeGeneratedProject(value.generatedProject),
+    generatedProjectRecovery: sanitizeGeneratedProjectRecovery(value.generatedProjectRecovery),
+    labGoal: typeof value.labGoal === "string" ? value.labGoal.slice(0, 1600) : "",
+    labAnalysis: sanitizeLabAnalysis(value.labAnalysis),
+    labVersions: sanitizeLabVersions(value.labVersions),
   };
 }
 
@@ -255,6 +561,11 @@ export function serializeBuilderProjectCollection(collection: BuilderProjectColl
     ...collection,
     projects: collection.projects.map((project) => ({
       ...project,
+      generatedProject: sanitizeGeneratedProject(project.generatedProject),
+      generatedProjectRecovery: sanitizeGeneratedProjectRecovery(project.generatedProjectRecovery),
+      labGoal: project.labGoal.slice(0, 1600),
+      labAnalysis: sanitizeLabAnalysis(project.labAnalysis),
+      labVersions: sanitizeLabVersions(project.labVersions),
       sources: project.sources.map((source) => {
         const wasTextTrimmed = source.wasTextTrimmed || source.payload.extractedText.length > MAX_SAVED_SOURCE_TEXT;
         return {
@@ -280,10 +591,14 @@ export function createBuilderProjectId(): string {
   return `app-${id}`;
 }
 
-export function createBuilderProject(name = "Mi primera app"): BuilderProject {
+export function createBuilderProject(
+  name = "Mi primera app",
+  mode: BuilderProject["mode"] = "builder",
+): BuilderProject {
   return {
     id: createBuilderProjectId(),
     name: name.trim().slice(0, 64) || "Mi app",
+    mode,
     messages: [],
     blueprint: null,
     taskPlan: [],
@@ -291,6 +606,11 @@ export function createBuilderProject(name = "Mi primera app"): BuilderProject {
     expansionDecision: null,
     approvedModuleId: null,
     sources: [],
+    generatedProject: null,
+    generatedProjectRecovery: null,
+    labGoal: "",
+    labAnalysis: null,
+    labVersions: [],
   };
 }
 
@@ -298,6 +618,7 @@ export function createDefaultBuilderCollection(): BuilderProjectCollection {
   const project = {
     id: "app-principal",
     name: "Mi primera app",
+    mode: "builder" as const,
     messages: [],
     blueprint: null,
     taskPlan: [],
@@ -305,6 +626,11 @@ export function createDefaultBuilderCollection(): BuilderProjectCollection {
     expansionDecision: null,
     approvedModuleId: null,
     sources: [],
+    generatedProject: null,
+    generatedProjectRecovery: null,
+    labGoal: "",
+    labAnalysis: null,
+    labVersions: [],
   };
   return { projects: [project], activeProjectId: project.id };
 }

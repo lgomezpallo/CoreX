@@ -19,6 +19,8 @@ type ReferenceFile = {
 };
 
 export type BuilderGenerationInput = {
+  userId: string;
+  accessToken: string;
   prompt: string;
   previousBlueprint: unknown;
   history: Array<{ role: "user" | "assistant"; content: string }>;
