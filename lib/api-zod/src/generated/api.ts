@@ -199,7 +199,7 @@ export const GenerateAppBlueprintResponse = zod.object({
   "id": zod.string().max(generateAppBlueprintResponseTasksItemIdMax),
   "title": zod.string().max(generateAppBlueprintResponseTasksItemTitleMax),
   "capability": zod.enum(['planning', 'structured-output']),
-  "taskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])
+  "taskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])
 })).min(1).max(generateAppBlueprintResponseTasksMax)
 })
 
@@ -404,10 +404,10 @@ export const CreateBuilderProjectJobResponse = zod.object({
   "fileProgress": zod.array(zod.object({
   "path": zod.string().max(createBuilderProjectJobResponseFileProgressItemPathMax),
   "status": zod.enum(['planned', 'generating', 'generated', 'correcting', 'corrected', 'error']),
-  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(createBuilderProjectJobResponseFileProgressItemGenerationTaskTypesMax),
-  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document']).nullable(),
-  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(createBuilderProjectJobResponseFileProgressItemCorrectionTaskTypesMax),
-  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(createBuilderProjectJobResponseFileProgressItemResolvedCorrectionTaskTypesMax)
+  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(createBuilderProjectJobResponseFileProgressItemGenerationTaskTypesMax),
+  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast']).nullable(),
+  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(createBuilderProjectJobResponseFileProgressItemCorrectionTaskTypesMax),
+  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(createBuilderProjectJobResponseFileProgressItemResolvedCorrectionTaskTypesMax)
 })).max(createBuilderProjectJobResponseFileProgressMax),
   "correctedFiles": zod.array(zod.string().max(createBuilderProjectJobResponseCorrectedFilesItemMax)).max(createBuilderProjectJobResponseCorrectedFilesMax),
   "codingFallbackUsed": zod.boolean(),
@@ -591,10 +591,10 @@ export const CreateBuilderProjectBuildResponse = zod.object({
   "fileProgress": zod.array(zod.object({
   "path": zod.string().max(createBuilderProjectBuildResponseFileProgressItemPathMax),
   "status": zod.enum(['planned', 'generating', 'generated', 'correcting', 'corrected', 'error']),
-  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(createBuilderProjectBuildResponseFileProgressItemGenerationTaskTypesMax),
-  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document']).nullable(),
-  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(createBuilderProjectBuildResponseFileProgressItemCorrectionTaskTypesMax),
-  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(createBuilderProjectBuildResponseFileProgressItemResolvedCorrectionTaskTypesMax)
+  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(createBuilderProjectBuildResponseFileProgressItemGenerationTaskTypesMax),
+  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast']).nullable(),
+  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(createBuilderProjectBuildResponseFileProgressItemCorrectionTaskTypesMax),
+  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(createBuilderProjectBuildResponseFileProgressItemResolvedCorrectionTaskTypesMax)
 })).max(createBuilderProjectBuildResponseFileProgressMax),
   "correctedFiles": zod.array(zod.string().max(createBuilderProjectBuildResponseCorrectedFilesItemMax)).max(createBuilderProjectBuildResponseCorrectedFilesMax),
   "codingFallbackUsed": zod.boolean(),
@@ -710,10 +710,10 @@ export const GetBuilderProjectJobResponse = zod.object({
   "fileProgress": zod.array(zod.object({
   "path": zod.string().max(getBuilderProjectJobResponseFileProgressItemPathMax),
   "status": zod.enum(['planned', 'generating', 'generated', 'correcting', 'corrected', 'error']),
-  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(getBuilderProjectJobResponseFileProgressItemGenerationTaskTypesMax),
-  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document']).nullable(),
-  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(getBuilderProjectJobResponseFileProgressItemCorrectionTaskTypesMax),
-  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(getBuilderProjectJobResponseFileProgressItemResolvedCorrectionTaskTypesMax)
+  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(getBuilderProjectJobResponseFileProgressItemGenerationTaskTypesMax),
+  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast']).nullable(),
+  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(getBuilderProjectJobResponseFileProgressItemCorrectionTaskTypesMax),
+  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(getBuilderProjectJobResponseFileProgressItemResolvedCorrectionTaskTypesMax)
 })).max(getBuilderProjectJobResponseFileProgressMax),
   "correctedFiles": zod.array(zod.string().max(getBuilderProjectJobResponseCorrectedFilesItemMax)).max(getBuilderProjectJobResponseCorrectedFilesMax),
   "codingFallbackUsed": zod.boolean(),
@@ -817,10 +817,10 @@ export const GetBuilderProjectJobStatusResponse = zod.object({
   "fileProgress": zod.array(zod.object({
   "path": zod.string().max(getBuilderProjectJobStatusResponseFileProgressItemPathMax),
   "status": zod.enum(['planned', 'generating', 'generated', 'correcting', 'corrected', 'error']),
-  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(getBuilderProjectJobStatusResponseFileProgressItemGenerationTaskTypesMax),
-  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document']).nullable(),
-  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(getBuilderProjectJobStatusResponseFileProgressItemCorrectionTaskTypesMax),
-  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(getBuilderProjectJobStatusResponseFileProgressItemResolvedCorrectionTaskTypesMax)
+  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(getBuilderProjectJobStatusResponseFileProgressItemGenerationTaskTypesMax),
+  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast']).nullable(),
+  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(getBuilderProjectJobStatusResponseFileProgressItemCorrectionTaskTypesMax),
+  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(getBuilderProjectJobStatusResponseFileProgressItemResolvedCorrectionTaskTypesMax)
 })).max(getBuilderProjectJobStatusResponseFileProgressMax),
   "correctedFiles": zod.array(zod.string().max(getBuilderProjectJobStatusResponseCorrectedFilesItemMax)).max(getBuilderProjectJobStatusResponseCorrectedFilesMax),
   "codingFallbackUsed": zod.boolean(),
@@ -950,10 +950,10 @@ export const ReportBuilderProjectRuntimeCheckResponse = zod.object({
   "fileProgress": zod.array(zod.object({
   "path": zod.string().max(reportBuilderProjectRuntimeCheckResponseFileProgressItemPathMax),
   "status": zod.enum(['planned', 'generating', 'generated', 'correcting', 'corrected', 'error']),
-  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(reportBuilderProjectRuntimeCheckResponseFileProgressItemGenerationTaskTypesMax),
-  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document']).nullable(),
-  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(reportBuilderProjectRuntimeCheckResponseFileProgressItemCorrectionTaskTypesMax),
-  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).max(reportBuilderProjectRuntimeCheckResponseFileProgressItemResolvedCorrectionTaskTypesMax)
+  "generationTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(reportBuilderProjectRuntimeCheckResponseFileProgressItemGenerationTaskTypesMax),
+  "resolvedGenerationTaskType": zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast']).nullable(),
+  "correctionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(reportBuilderProjectRuntimeCheckResponseFileProgressItemCorrectionTaskTypesMax),
+  "resolvedCorrectionTaskTypes": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).max(reportBuilderProjectRuntimeCheckResponseFileProgressItemResolvedCorrectionTaskTypesMax)
 })).max(reportBuilderProjectRuntimeCheckResponseFileProgressMax),
   "correctedFiles": zod.array(zod.string().max(reportBuilderProjectRuntimeCheckResponseCorrectedFilesItemMax)).max(reportBuilderProjectRuntimeCheckResponseCorrectedFilesMax),
   "codingFallbackUsed": zod.boolean(),
@@ -1349,6 +1349,10 @@ export const GetRouterStatusResponse = zod.object({
 })
 
 
+export const listRouterProvidersResponseCapabilitiesMax = 8;
+
+export const listRouterProvidersResponsePriorityMin = 0;
+export const listRouterProvidersResponsePriorityMax = 100;
 
 
 
@@ -1360,8 +1364,8 @@ export const ListRouterProvidersResponseItem = zod.object({
   "model": zod.string(),
   "apiKeyPreview": zod.string(),
   "isDefault": zod.boolean(),
-  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).min(1),
-  "priority": zod.number().int(),
+  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).min(1).max(listRouterProvidersResponseCapabilitiesMax),
+  "priority": zod.number().int().min(listRouterProvidersResponsePriorityMin).max(listRouterProvidersResponsePriorityMax),
   "isActive": zod.boolean(),
   "status": zod.string(),
   "healthStatus": zod.string(),
@@ -1370,32 +1374,37 @@ export const ListRouterProvidersResponseItem = zod.object({
 export const ListRouterProvidersResponse = zod.array(ListRouterProvidersResponseItem)
 
 
-export const createRouterProviderBodyNameMax = 120;
+export const createRouterProviderBodyNameMax = 80;
 
-export const createRouterProviderBodyBaseUrlMax = 2048;
+export const createRouterProviderBodyBaseUrlMax = 500;
 
 export const createRouterProviderBodyModelMax = 160;
 
 export const createRouterProviderBodyApiKeyMax = 4096;
 
+export const createRouterProviderBodyCapabilitiesMax = 8;
 
 export const createRouterProviderBodyPriorityMin = 0;
-export const createRouterProviderBodyPriorityMax = 1000;
+export const createRouterProviderBodyPriorityMax = 100;
 
 
 
 export const CreateRouterProviderBody = zod.object({
   "name": zod.string().min(1).max(createRouterProviderBodyNameMax),
   "kind": zod.enum(['openai', 'anthropic', 'gemini', 'openai-compatible', 'groq']),
-  "baseUrl": zod.string().max(createRouterProviderBodyBaseUrlMax).nullish(),
+  "baseUrl": zod.string().max(createRouterProviderBodyBaseUrlMax).optional(),
   "model": zod.string().min(1).max(createRouterProviderBodyModelMax),
-  "apiKey": zod.string().min(1).max(createRouterProviderBodyApiKeyMax),
-  "isDefault": zod.boolean().optional(),
-  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).min(1).optional(),
+  "apiKey": zod.string().min(1).max(createRouterProviderBodyApiKeyMax).optional(),
+  "isDefault": zod.boolean(),
+  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).min(1).max(createRouterProviderBodyCapabilitiesMax).optional(),
   "priority": zod.number().int().min(createRouterProviderBodyPriorityMin).max(createRouterProviderBodyPriorityMax).optional(),
   "isActive": zod.boolean().optional()
 })
 
+export const createRouterProviderResponseCapabilitiesMax = 8;
+
+export const createRouterProviderResponsePriorityMin = 0;
+export const createRouterProviderResponsePriorityMax = 100;
 
 
 
@@ -1407,8 +1416,8 @@ export const CreateRouterProviderResponse = zod.object({
   "model": zod.string(),
   "apiKeyPreview": zod.string(),
   "isDefault": zod.boolean(),
-  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).min(1),
-  "priority": zod.number().int(),
+  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).min(1).max(createRouterProviderResponseCapabilitiesMax),
+  "priority": zod.number().int().min(createRouterProviderResponsePriorityMin).max(createRouterProviderResponsePriorityMax),
   "isActive": zod.boolean(),
   "status": zod.string(),
   "healthStatus": zod.string(),
@@ -1420,31 +1429,36 @@ export const UpdateRouterProviderParams = zod.object({
   "providerId": zod.coerce.string().uuid()
 })
 
-export const updateRouterProviderBodyNameMax = 120;
+export const updateRouterProviderBodyNameMax = 80;
 
-export const updateRouterProviderBodyBaseUrlMax = 2048;
+export const updateRouterProviderBodyBaseUrlMax = 500;
 
 export const updateRouterProviderBodyModelMax = 160;
 
 export const updateRouterProviderBodyApiKeyMax = 4096;
 
+export const updateRouterProviderBodyCapabilitiesMax = 8;
 
 export const updateRouterProviderBodyPriorityMin = 0;
-export const updateRouterProviderBodyPriorityMax = 1000;
+export const updateRouterProviderBodyPriorityMax = 100;
 
 
 
 export const UpdateRouterProviderBody = zod.object({
   "name": zod.string().min(1).max(updateRouterProviderBodyNameMax).optional(),
-  "baseUrl": zod.string().max(updateRouterProviderBodyBaseUrlMax).nullish(),
+  "baseUrl": zod.string().max(updateRouterProviderBodyBaseUrlMax).optional(),
   "model": zod.string().min(1).max(updateRouterProviderBodyModelMax).optional(),
   "apiKey": zod.string().min(1).max(updateRouterProviderBodyApiKeyMax).optional(),
   "isDefault": zod.boolean().optional(),
-  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).min(1).optional(),
+  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).min(1).max(updateRouterProviderBodyCapabilitiesMax).optional(),
   "priority": zod.number().int().min(updateRouterProviderBodyPriorityMin).max(updateRouterProviderBodyPriorityMax).optional(),
   "isActive": zod.boolean().optional()
 })
 
+export const updateRouterProviderResponseCapabilitiesMax = 8;
+
+export const updateRouterProviderResponsePriorityMin = 0;
+export const updateRouterProviderResponsePriorityMax = 100;
 
 
 
@@ -1456,8 +1470,8 @@ export const UpdateRouterProviderResponse = zod.object({
   "model": zod.string(),
   "apiKeyPreview": zod.string(),
   "isDefault": zod.boolean(),
-  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document'])).min(1),
-  "priority": zod.number().int(),
+  "capabilities": zod.array(zod.enum(['chat', 'coding', 'reasoning', 'summarization', 'vision', 'document', 'long_context', 'fast'])).min(1).max(updateRouterProviderResponseCapabilitiesMax),
+  "priority": zod.number().int().min(updateRouterProviderResponsePriorityMin).max(updateRouterProviderResponsePriorityMax),
   "isActive": zod.boolean(),
   "status": zod.string(),
   "healthStatus": zod.string(),

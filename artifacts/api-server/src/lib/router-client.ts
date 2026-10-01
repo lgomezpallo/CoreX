@@ -33,32 +33,56 @@ let healthState: RouterHealthState = {
 };
 
 function routerBaseUrl(): string {
-  const configuredUrl = process.env.ROUTER_URL?.trim() || DEFAULT_ROUTER_URL;
+  const configuredUrl =
+    process.env.ROUTER_IA_URL?.trim() ||
+    process.env.ROUTER_URL?.trim() ||
+    DEFAULT_ROUTER_URL;
   let parsed: URL;
 
   try {
     parsed = new URL(configuredUrl);
   } catch {
-    throw new Error("ROUTER_URL no es una URL válida.");
+    throw new Error("ROUTER_IA_URL no es una URL válida.");
   }
 
+  const allowedPaths = new Set([
+    "",
+    "/",
+    "/api",
+    "/api/v1/chat/completions",
+  ]);
+  const localDevelopmentHost =
+    process.env.NODE_ENV !== "production" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   if (
-    !["https:", "http:"].includes(parsed.protocol) ||
+    (parsed.protocol !== "https:" &&
+      !(parsed.protocol === "http:" && localDevelopmentHost)) ||
     parsed.username ||
     parsed.password ||
-    parsed.pathname !== "/" ||
+    !allowedPaths.has(parsed.pathname) ||
     parsed.search ||
     parsed.hash
   ) {
-    throw new Error("ROUTER_URL debe ser una URL base HTTP(S) sin ruta, credenciales ni parámetros.");
+    throw new Error(
+      "ROUTER_IA_URL debe ser HTTPS y apuntar al origen, /api o endpoint /api/v1/chat/completions, sin credenciales ni parámetros.",
+    );
   }
 
   return parsed.origin;
 }
 
 function routerAppKey(): string | null {
-  const appKey = process.env.ROUTER_APP_KEY?.trim();
+  const appKey =
+    process.env.ROUTER_IA_TOKEN?.trim() ||
+    process.env.ROUTER_APP_KEY?.trim();
   return appKey || null;
+}
+
+export function routerApiUrl(path: string): URL {
+  if (!path.startsWith("/api/") || path.startsWith("//")) {
+    throw new Error("La ruta de Router IA debe ser una ruta API absoluta.");
+  }
+  return new URL(path, routerBaseUrl());
 }
 
 function configurationMessage(): string | null {
@@ -70,7 +94,7 @@ function configurationMessage(): string | null {
 
   return routerAppKey()
     ? null
-    : "Falta configurar ROUTER_APP_KEY en el servidor para habilitar las solicitudes.";
+    : "Falta configurar ROUTER_IA_TOKEN en el servidor para habilitar las solicitudes.";
 }
 
 function finalModelText(value: string): string {
@@ -132,7 +156,7 @@ export async function testRouterConnection(_taskType: RouterTaskType) {
   const testedAt = new Date().toISOString();
 
   try {
-    const response = await fetch(new URL("/api/healthz", routerBaseUrl()), {
+    const response = await fetch(routerApiUrl("/api/healthz"), {
       method: "GET",
       headers: { Accept: "application/json" },
       redirect: "error",
@@ -147,8 +171,8 @@ export async function testRouterConnection(_taskType: RouterTaskType) {
       lastTestAt: testedAt,
       lastLatencyMs: Math.max(0, Date.now() - startedAt),
       message: routerAppKey()
-        ? "Router IA está disponible. No se consultaron modelos ni providers."
-        : "Router IA está disponible; falta ROUTER_APP_KEY para enviar solicitudes.",
+        ? "Router IA está disponible. El token no se validó; no se consultaron modelos ni providers."
+        : "Router IA está disponible; falta ROUTER_IA_TOKEN para enviar solicitudes.",
     };
   } catch (error) {
     healthState = {
@@ -174,16 +198,16 @@ export async function createRouterCompletion(
   messages: RouterChatMessage[],
   options: CompletionOptions,
 ): Promise<string> {
-  const baseUrl = routerBaseUrl();
   const appKey = routerAppKey();
   if (!appKey) {
-    throw new Error("Router IA no está configurado: falta ROUTER_APP_KEY en el servidor.");
+    throw new Error("Router IA no está configurado: falta ROUTER_IA_TOKEN en el servidor.");
   }
 
   const requestMessages = options.jsonMode ? jsonModeMessages(messages) : messages;
+  const endpoint = routerApiUrl("/api/v1/chat/completions");
   let response: Response;
   try {
-    response = await fetch(new URL("/api/v1/chat/completions", baseUrl), {
+    response = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${appKey}`,

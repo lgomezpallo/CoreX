@@ -144,7 +144,7 @@ export function RouterSettings({ open, onClose }: { open: boolean; onClose: () =
                   </p>
                 </div>
                 <span className={`builder-provider-status ${status.data.connected ? "" : "is-suspended"}`}>
-                  {status.data.connected ? "Conectado" : "Sin verificar"}
+                  {status.data.connected ? "API disponible" : "Sin verificar"}
                 </span>
               </div>
               {status.data.message && (
@@ -183,8 +183,8 @@ export function RouterSettings({ open, onClose }: { open: boolean; onClose: () =
 
           <p className="builder-provider-settings-note">
             <CircleHelp size={14} />
-            La verificación consulta únicamente el endpoint de salud; no envía prompts ni ejecuta inferencias.
-            Configurá ROUTER_URL (opcional) y ROUTER_APP_KEY en el servidor, y administrá los providers desde Router IA.
+            La verificación consulta únicamente el endpoint de salud; no valida el token ni envía prompts.
+            Configurá ROUTER_IA_URL (opcional) y ROUTER_IA_TOKEN en el servidor. Administrá los providers desde Router IA;
             CoreX no guarda sus claves.
           </p>
         </div>

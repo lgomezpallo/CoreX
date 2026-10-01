@@ -85,6 +85,8 @@ const routerTaskTypeLabels = {
   summarization: "Resumen",
   vision: "Visión",
   document: "Documento",
+  long_context: "Contexto largo",
+  fast: "Rápido",
 } as const;
 
 const examplePrompts = [

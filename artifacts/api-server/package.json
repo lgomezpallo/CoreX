@@ -8,7 +8,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:generated-project-generation": "node ./scripts/test-generated-project-generation.mjs"
+    "test:generated-project-generation": "node ./scripts/test-generated-project-generation.mjs",
+    "test:router-integration": "node ./scripts/test-router-integration.mjs"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

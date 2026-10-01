@@ -17,8 +17,15 @@ export interface RouterProvider {
   model: string;
   apiKeyPreview: string;
   isDefault: boolean;
-  /** @minItems 1 */
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
   capabilities: RouterTaskType[];
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   priority: number;
   isActive: boolean;
   status: string;

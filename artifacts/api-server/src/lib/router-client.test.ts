@@ -4,22 +4,20 @@ import { afterEach, test } from "node:test";
 import { createRouterCompletion, testRouterConnection, type RouterChatMessage } from "./router-client.ts";
 
 const originalFetch = globalThis.fetch;
-const originalRouterUrl = process.env.ROUTER_URL;
-const originalRouterAppKey = process.env.ROUTER_APP_KEY;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  if (originalRouterUrl === undefined) delete process.env.ROUTER_URL;
-  else process.env.ROUTER_URL = originalRouterUrl;
-  if (originalRouterAppKey === undefined) delete process.env.ROUTER_APP_KEY;
-  else process.env.ROUTER_APP_KEY = originalRouterAppKey;
+  delete process.env.ROUTER_IA_URL;
+  delete process.env.ROUTER_IA_TOKEN;
+  delete process.env.ROUTER_URL;
+  delete process.env.ROUTER_APP_KEY;
 });
 
 const options = { maxTokens: 512, jsonMode: false };
 
 test("sends every completion through the configured Router IA endpoint", async () => {
-  process.env.ROUTER_URL = "https://router.example.test";
-  process.env.ROUTER_APP_KEY = "local-test-app-key";
+  process.env.ROUTER_IA_URL = "https://router.example.test/api/v1/chat/completions";
+  process.env.ROUTER_IA_TOKEN = "ria_live_local_test_token";
   let requestUrl = "";
   let requestHeaders: Headers | undefined;
   let requestBody: Record<string, unknown> | undefined;
@@ -38,7 +36,7 @@ test("sends every completion through the configured Router IA endpoint", async (
 
   assert.equal(result, "Hola");
   assert.equal(requestUrl, "https://router.example.test/api/v1/chat/completions");
-  assert.equal(requestHeaders?.get("authorization"), "Bearer local-test-app-key");
+  assert.equal(requestHeaders?.get("authorization"), "Bearer ria_live_local_test_token");
   assert.deepEqual(requestBody, {
     task_type: "chat",
     messages,
@@ -91,12 +89,14 @@ test("Router health check never sends a prompt or an authorization token", async
   assert.equal(requestInit?.body, undefined);
   assert.equal(status.configured, true);
   assert.equal(status.connected, true);
-  assert.match(status.message ?? "", /No se consultaron modelos ni providers/);
+  assert.match(status.message ?? "", /token no se validó/i);
+  assert.match(status.message ?? "", /no se consultaron modelos ni providers/i);
 });
 
 test("reports Router availability separately from missing completion credentials", async () => {
   process.env.ROUTER_URL = "https://router.example.test";
   delete process.env.ROUTER_APP_KEY;
+  delete process.env.ROUTER_IA_TOKEN;
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ status: "ok" }), { status: 200 })) as typeof fetch;
 
@@ -104,7 +104,7 @@ test("reports Router availability separately from missing completion credentials
 
   assert.equal(status.configured, false);
   assert.equal(status.connected, true);
-  assert.match(status.message ?? "", /falta.*ROUTER_APP_KEY/i);
+  assert.match(status.message ?? "", /falta.*ROUTER_IA_TOKEN/i);
 });
 
 test("does not expose an upstream error body", async () => {
@@ -118,5 +118,15 @@ test("does not expose an upstream error body", async () => {
   await assert.rejects(
     createRouterCompletion("chat", [{ role: "user", content: "Respondé." }], options),
     { message: "Router IA respondió con HTTP 401." },
+  );
+});
+
+test("rejects an unexpected Router IA path rather than silently ignoring it", async () => {
+  process.env.ROUTER_IA_URL = "https://router.example.test/unexpected/path";
+  process.env.ROUTER_IA_TOKEN = "ria_live_local_test_token";
+
+  await assert.rejects(
+    createRouterCompletion("chat", [{ role: "user", content: "Respondé." }], options),
+    /ROUTER_IA_URL debe ser HTTPS/,
   );
 });

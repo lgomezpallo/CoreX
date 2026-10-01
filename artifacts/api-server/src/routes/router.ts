@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import {
   GetRouterStatusResponse,
   TestRouterConnectionBody,
@@ -14,6 +14,7 @@ import {
 } from "@workspace/api-zod";
 import { getRouterStatus, testRouterConnection } from "../lib/router-client";
 import {
+  RouterProviderApiError,
   createProvider,
   deleteProvider,
   listProviders,
@@ -22,6 +23,18 @@ import {
 import { requireSupabaseUser } from "../lib/supabase-auth";
 
 const router: IRouter = Router();
+
+function sendProviderError(
+  res: Response,
+  error: unknown,
+  fallback: string,
+): void {
+  if (error instanceof RouterProviderApiError) {
+    res.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+  res.status(502).json({ error: fallback });
+}
 
 router.get("/router/status", requireSupabaseUser, async (req, res): Promise<void> => {
   try {
@@ -46,10 +59,18 @@ router.get("/router/providers", requireSupabaseUser, async (req, res): Promise<v
       res.status(502).json({ error: "Invalid provider response." });
       return;
     }
+    res.setHeader("Cache-Control", "no-store");
     res.json(output.data);
   } catch (error) {
-    req.log.error({ err: error }, "Provider list failed");
-    res.status(502).json({ error: "No pude leer tus proveedores." });
+    req.log.warn(
+      {
+        statusCode: error instanceof RouterProviderApiError
+          ? error.statusCode
+          : 502,
+      },
+      "Router IA provider list request failed",
+    );
+    sendProviderError(res, error, "No pude leer tus proveedores.");
   }
 });
 
@@ -62,18 +83,16 @@ router.post("/router/providers", requireSupabaseUser, async (req, res): Promise<
   try {
     const output = CreateRouterProviderResponse.safeParse(await createProvider(
       req.supabaseAccessToken!,
-      req.authenticatedUserId!,
       parsed.data,
     ));
     if (!output.success) {
       res.status(502).json({ error: "Invalid provider response." });
       return;
     }
+    res.setHeader("Cache-Control", "no-store");
     res.status(201).json(output.data);
   } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Invalid provider.",
-    });
+    sendProviderError(res, error, "No pude crear el provider en Router IA.");
   }
 });
 
@@ -93,11 +112,10 @@ router.patch("/router/providers/:id", requireSupabaseUser, async (req, res): Pro
       res.status(502).json({ error: "Invalid provider response." });
       return;
     }
+    res.setHeader("Cache-Control", "no-store");
     res.json(output.data);
   } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Invalid provider.",
-    });
+    sendProviderError(res, error, "No pude actualizar el provider en Router IA.");
   }
 });
 
@@ -109,10 +127,18 @@ router.delete("/router/providers/:id", requireSupabaseUser, async (req, res): Pr
   }
   try {
     await deleteProvider(req.supabaseAccessToken!, id);
+    res.setHeader("Cache-Control", "no-store");
     res.sendStatus(204);
   } catch (error) {
-    req.log.error({ err: error }, "Provider delete failed");
-    res.status(404).json({ error: "Provider not found." });
+    req.log.warn(
+      {
+        statusCode: error instanceof RouterProviderApiError
+          ? error.statusCode
+          : 502,
+      },
+      "Router IA provider delete request failed",
+    );
+    sendProviderError(res, error, "No pude eliminar el provider de Router IA.");
   }
 });
 

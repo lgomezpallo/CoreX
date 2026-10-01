@@ -236,6 +236,8 @@ export const RouterTaskType = {
   summarization: 'summarization',
   vision: 'vision',
   document: 'document',
+  long_context: 'long_context',
+  fast: 'fast',
 } as const;
 
 export interface AppBuilderTask {
@@ -722,8 +724,15 @@ export interface RouterProvider {
   model: string;
   apiKeyPreview: string;
   isDefault: boolean;
-  /** @minItems 1 */
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
   capabilities: RouterTaskType[];
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   priority: number;
   isActive: boolean;
   status: string;
@@ -746,15 +755,12 @@ export const RouterProviderInputKind = {
 export interface RouterProviderInput {
   /**
      * @minLength 1
-     * @maxLength 120
+     * @maxLength 80
      */
   name: string;
   kind: RouterProviderInputKind;
-  /**
-     * @maxLength 2048
-     * @nullable
-     */
-  baseUrl?: string | null;
+  /** @maxLength 500 */
+  baseUrl?: string;
   /**
      * @minLength 1
      * @maxLength 160
@@ -764,13 +770,16 @@ export interface RouterProviderInput {
      * @minLength 1
      * @maxLength 4096
      */
-  apiKey: string;
-  isDefault?: boolean;
-  /** @minItems 1 */
+  apiKey?: string;
+  isDefault: boolean;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
   capabilities?: RouterTaskType[];
   /**
      * @minimum 0
-     * @maximum 1000
+     * @maximum 100
      */
   priority?: number;
   isActive?: boolean;
@@ -779,14 +788,11 @@ export interface RouterProviderInput {
 export interface RouterProviderUpdate {
   /**
      * @minLength 1
-     * @maxLength 120
+     * @maxLength 80
      */
   name?: string;
-  /**
-     * @maxLength 2048
-     * @nullable
-     */
-  baseUrl?: string | null;
+  /** @maxLength 500 */
+  baseUrl?: string;
   /**
      * @minLength 1
      * @maxLength 160
@@ -798,11 +804,14 @@ export interface RouterProviderUpdate {
      */
   apiKey?: string;
   isDefault?: boolean;
-  /** @minItems 1 */
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
   capabilities?: RouterTaskType[];
   /**
      * @minimum 0
-     * @maximum 1000
+     * @maximum 100
      */
   priority?: number;
   isActive?: boolean;
