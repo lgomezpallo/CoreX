@@ -321,7 +321,7 @@ async function reviewProject(
   const completion = await createRouterCompletion("reasoning", messages, {
     maxTokens: 1200,
     jsonMode: true,
-  }, userId, accessToken);
+  });
   return parseProjectQualityReview(completion);
 }
 

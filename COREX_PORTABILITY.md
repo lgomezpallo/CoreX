@@ -15,7 +15,10 @@ CoreX can run outside Replit with Node.js and pnpm. Replit artifact metadata and
 cp .env.example .env
 ```
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLIC_KEY` for the browser build. Set `ROUTER_APP_KEY` in the server environment; do not use a `VITE_` prefix or expose this value to the browser. `ROUTER_URL` defaults to `https://router-ia.luisgomezpallo.workers.dev`. `ROUTER_APP_ID` is kept server-side; CoreX does not transmit it until Router IA's expected header or body field is confirmed.
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLIC_KEY` for the browser build. Set `ROUTER_APP_KEY` in the server environment; do not use a `VITE_` prefix or expose this value to the browser. `ROUTER_URL` defaults to `https://router-ia.luisgomezpallo.workers.dev` and must be an HTTP(S) origin without a path, credentials, query, or fragment.
+
+The optional Prisma chat module is disabled by default. Enable it on the API with `PRISMA_MODULE_ENABLED=true` and in the web build with `VITE_ENABLE_PRISMA_CHAT=true`. Both flags are required. Providers and their credentials belong in Router IA; CoreX does not need provider API keys.
+Prisma conversation history stays in browser storage, scoped to the signed-in account; CoreX does not persist chat messages server-side. The API limits each account to 15 messages per minute per server process and 24,000 input characters per request.
 
 The Supabase public key is intended for browser use. Never put a Supabase `service_role` key in the web app or `.env.example`.
 
@@ -40,8 +43,10 @@ pnpm start
 ## External services and request flow
 
 - Browser sign-in and cloud snapshots use Supabase.
-- AI requests go from the API server to `POST ${ROUTER_URL}/api/v1/chat/completions`. The request uses the server-only Bearer `ROUTER_APP_KEY`, sends `task_type`, and omits `model`; Router IA owns provider and model routing.
-- `GET /api/router/status` reports whether the Router connection is configured and the last in-process test result. `POST /api/router/test` makes one real `chat` request.
+- AI requests go from the API server to `POST ${ROUTER_URL}/api/v1/chat/completions`. The request uses the server-only Bearer `ROUTER_APP_KEY`, sends `task_type`, and omits `model`; Router IA owns provider and model routing. CoreX never sends Supabase access tokens to Router IA.
+- `GET /api/router/status` reports server configuration and the last in-process health check. `POST /api/router/test` only calls Router IA's `/api/healthz`; it does not send prompts or invoke a model.
+- When enabled, `POST /api/prisma/chat` sends authenticated chat messages through Router IA. The API keeps no conversation history, enforces message-size and per-user request limits, and does not call providers directly. The browser stores Prisma history locally, separated by signed-in user.
+- Legacy provider settings already saved in Supabase are not deleted, but they are not used for completions. Direct provider test requests are disabled.
 - Other application state that is described as local remains in the browser. Supabase snapshots are a separate cloud backup path.
 
 ## Separate web and API hosting

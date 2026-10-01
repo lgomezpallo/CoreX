@@ -288,7 +288,7 @@ export async function createGeneratedProjectFilePlan(
 
   for (const taskType of ["reasoning", "chat"] as const) {
     try {
-      const result = await complete(taskType, messages, { maxTokens: 3_000, jsonMode: true }, input.userId, input.accessToken);
+      const result = await complete(taskType, messages, { maxTokens: 3_000, jsonMode: true });
       const plan = parseGeneratedProjectFilePlan(result, existingFiles);
       return orderGeneratedProjectFilePlan(plan, existingFiles);
     } catch (error) {
@@ -471,7 +471,7 @@ export async function generatePlannedSourceFile(
     attempted.push(taskType);
     options.onTaskType?.(taskType);
     try {
-      const response = await complete(taskType, messages, { maxTokens: 4_200, jsonMode: true }, input.userId, input.accessToken);
+      const response = await complete(taskType, messages, { maxTokens: 4_200, jsonMode: true });
       return {
         file: parseGeneratedSingleFile(response, filePlan.path),
         taskTypes: attempted,
@@ -486,7 +486,7 @@ export async function generatePlannedSourceFile(
   options.onTaskType?.("coding");
   options.onCodingFallback?.();
   try {
-    const response = await complete("coding", messages, { maxTokens: 4_800, jsonMode: true }, input.userId, input.accessToken);
+    const response = await complete("coding", messages, { maxTokens: 4_800, jsonMode: true });
     return {
       file: parseGeneratedSingleFile(response, filePlan.path),
       taskTypes: attempted,
@@ -552,7 +552,7 @@ export async function attributeProjectDiagnosticDetails(
   ];
   try {
     const response = parseStrictJson(
-      await complete("reasoning", messages, { maxTokens: 700, jsonMode: true }, input.userId, input.accessToken),
+      await complete("reasoning", messages, { maxTokens: 700, jsonMode: true }),
       "La atribución de diagnósticos",
     );
     if (

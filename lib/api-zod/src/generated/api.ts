@@ -1472,19 +1472,18 @@ export const DeleteRouterProviderParams = zod.object({
 export const DeleteRouterProviderResponse = zod.void()
 
 
+/**
+ * @deprecated
+ */
 export const TestRouterProviderParams = zod.object({
   "providerId": zod.coerce.string().uuid()
 })
 
-export const TestRouterProviderResponse = zod.object({
-  "ok": zod.boolean(),
-  "latencyMs": zod.number().int().nullable(),
-  "message": zod.string()
-})
+export const TestRouterProviderResponse = zod.void()
 
 
 /**
- * @summary Test the Router IA connection
+ * @summary Check Router IA health without invoking a model
  */
 export const TestRouterConnectionBody = zod.object({
   "task_type": zod.enum(['chat'])
@@ -1502,6 +1501,31 @@ export const TestRouterConnectionResponse = zod.object({
   "lastTestAt": zod.coerce.date().nullable(),
   "lastLatencyMs": zod.number().int().min(testRouterConnectionResponseLastLatencyMsMin).nullable(),
   "message": zod.string().max(testRouterConnectionResponseMessageMax).nullable()
+})
+
+
+/**
+ * @summary Send a conversational message through Router IA
+ */
+export const sendPrismaChatBodyMessagesItemContentMax = 4000;
+
+export const sendPrismaChatBodyMessagesMax = 60;
+
+
+
+export const SendPrismaChatBody = zod.object({
+  "messages": zod.array(zod.object({
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string().min(1).max(sendPrismaChatBodyMessagesItemContentMax)
+})).min(1).max(sendPrismaChatBodyMessagesMax)
+})
+
+export const sendPrismaChatResponseMessageMax = 8000;
+
+
+
+export const SendPrismaChatResponse = zod.object({
+  "message": zod.string().min(1).max(sendPrismaChatResponseMessageMax)
 })
 
 

@@ -34,11 +34,12 @@ import type {
   HealthStatus,
   LabAnalysisInput,
   LabAnalysisResult,
+  PrismaChatRequest,
+  PrismaChatResponse,
   RouterConnectionStatus,
   RouterConnectionTestInput,
   RouterProvider,
   RouterProviderInput,
-  RouterProviderTestResult,
   RouterProviderUpdate,
   WebReference,
   WebReferenceInput
@@ -1311,9 +1312,12 @@ export const getTestRouterProviderUrl = (providerId: string,) => {
   return `/api/router/providers/${providerId}/test`
 }
 
-export const testRouterProvider = async (providerId: string, options?: Parameters<typeof customFetch>[1]): Promise<RouterProviderTestResult> => {
+/**
+ * @deprecated
+ */
+export const testRouterProvider = async (providerId: string, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
 
-  return customFetch<RouterProviderTestResult>(getTestRouterProviderUrl(providerId),
+  return customFetch<unknown>(getTestRouterProviderUrl(providerId),
   {
     ...options,
     method: 'POST'
@@ -1328,7 +1332,7 @@ export const testRouterProvider = async (providerId: string, options?: Parameter
 
 export const getTestRouterProviderMutationKey = () => ['testRouterProvider'] as const;
 
-export const getTestRouterProviderMutationOptions = <TError = ErrorType<unknown>,
+export const getTestRouterProviderMutationOptions = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testRouterProvider>>, TError,TestRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof testRouterProvider>>, TError,TestRouterProviderMutationVariables, TContext> => {
 
@@ -1357,10 +1361,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type TestRouterProviderMutationResult = NonNullable<Awaited<ReturnType<typeof testRouterProvider>>>
 
-    export type TestRouterProviderMutationError = ErrorType<unknown>
+    export type TestRouterProviderMutationError = ErrorType<ApiError>
     export type TestRouterProviderMutationVariables = {providerId: string}
 
-    export const useTestRouterProvider = <TError = ErrorType<unknown>,
+    /**
+ * @deprecated
+ */
+export const useTestRouterProvider = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testRouterProvider>>, TError,TestRouterProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof testRouterProvider>>,
@@ -1380,7 +1387,7 @@ export const getTestRouterConnectionUrl = () => {
 }
 
 /**
- * @summary Test the Router IA connection
+ * @summary Check Router IA health without invoking a model
  */
 export const testRouterConnection = async (routerConnectionTestInput: RouterConnectionTestInput, options?: Parameters<typeof customFetch>[1]): Promise<RouterConnectionStatus> => {
 
@@ -1446,7 +1453,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TestRouterConnectionMutationVariables = {data: BodyType<RouterConnectionTestInput>}
 
     /**
- * @summary Test the Router IA connection
+ * @summary Check Router IA health without invoking a model
  */
 export const useTestRouterConnection = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testRouterConnection>>, TError,TestRouterConnectionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1457,5 +1464,93 @@ export const useTestRouterConnection = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getTestRouterConnectionMutationOptions(options));
+    }
+
+export const getSendPrismaChatUrl = () => {
+
+
+
+
+  return `/api/prisma/chat`
+}
+
+/**
+ * @summary Send a conversational message through Router IA
+ */
+export const sendPrismaChat = async (prismaChatRequest: PrismaChatRequest, options?: Parameters<typeof customFetch>[1]): Promise<PrismaChatResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PrismaChatResponse>(getSendPrismaChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(prismaChatRequest)
+  }
+);}
+
+
+
+
+
+export const getSendPrismaChatMutationKey = () => ['sendPrismaChat'] as const;
+
+export const getSendPrismaChatMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendPrismaChat>>, TError,SendPrismaChatMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendPrismaChat>>, TError,SendPrismaChatMutationVariables, TContext> => {
+
+const mutationKey = getSendPrismaChatMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendPrismaChat>>, SendPrismaChatMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendPrismaChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendPrismaChatMutationResult = NonNullable<Awaited<ReturnType<typeof sendPrismaChat>>>
+    export type SendPrismaChatMutationBody = BodyType<PrismaChatRequest>
+    export type SendPrismaChatMutationError = ErrorType<ApiError>
+    export type SendPrismaChatMutationVariables = {data: BodyType<PrismaChatRequest>}
+
+    /**
+ * @summary Send a conversational message through Router IA
+ */
+export const useSendPrismaChat = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendPrismaChat>>, TError,SendPrismaChatMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendPrismaChat>>,
+        TError,
+        SendPrismaChatMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSendPrismaChatMutationOptions(options));
     }
 

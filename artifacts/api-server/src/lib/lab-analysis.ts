@@ -89,7 +89,7 @@ export async function analyzeLabEvidence(input: LabAnalysisInput, userId: string
   const completion = await createRouterCompletion(input.visuals?.length ? "vision" : "reasoning", messages, {
     maxTokens: 3200,
     jsonMode: true,
-  }, userId, accessToken);
+  });
   const parsed = parseJsonObject(completion);
   const restrictedRequest = requestsProtectedControlEvasion(input.goal);
   const blockedOperations = boundedStringList(parsed.blockedOperations, 8, 240);

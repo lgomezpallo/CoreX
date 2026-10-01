@@ -1,85 +1,122 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import {
-  createProviderCompletion,
-  type RouterChatMessage,
-} from "./router-client";
-import type { RouterProviderConfig } from "./router-providers";
+// @ts-expect-error Node's native TypeScript test runner requires the explicit extension.
+import { createRouterCompletion, testRouterConnection, type RouterChatMessage } from "./router-client.ts";
 
 const originalFetch = globalThis.fetch;
+const originalRouterUrl = process.env.ROUTER_URL;
+const originalRouterAppKey = process.env.ROUTER_APP_KEY;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  if (originalRouterUrl === undefined) delete process.env.ROUTER_URL;
+  else process.env.ROUTER_URL = originalRouterUrl;
+  if (originalRouterAppKey === undefined) delete process.env.ROUTER_APP_KEY;
+  else process.env.ROUTER_APP_KEY = originalRouterAppKey;
 });
-
-function provider(kind: RouterProviderConfig["kind"]): RouterProviderConfig {
-  return {
-    id: "unit-test-provider",
-    kind,
-    baseUrl: null,
-    model: "unit-test-model",
-    capabilities: ["chat", "vision"],
-    priority: 1,
-    isDefault: true,
-    apiKey: "unit-test-key",
-  };
-}
 
 const options = { maxTokens: 512, jsonMode: false };
 
-test("removes private reasoning markup before returning OpenAI text", async () => {
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    choices: [{ message: { content: "<think>private reasoning</think><final>Respuesta visible</final>" } }],
-  }), { status: 200 })) as typeof fetch;
+test("sends every completion through the configured Router IA endpoint", async () => {
+  process.env.ROUTER_URL = "https://router.example.test";
+  process.env.ROUTER_APP_KEY = "local-test-app-key";
+  let requestUrl = "";
+  let requestHeaders: Headers | undefined;
+  let requestBody: Record<string, unknown> | undefined;
 
-  const result = await createProviderCompletion(
-    provider("openai"),
-    [{ role: "user", content: "Respondé." }],
-    options,
-  );
-
-  assert.equal(result, "Respuesta visible");
-  assert.equal(result.includes("private reasoning"), false);
-});
-
-test("sends Gemini image data as inlineData and returns its final text", async () => {
-  const requestBodies: Record<string, any>[] = [];
-  globalThis.fetch = (async (_input, init) => {
-    requestBodies.push(JSON.parse(String(init?.body)));
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input);
+    requestHeaders = new Headers(init?.headers);
+    requestBody = JSON.parse(String(init?.body));
     return new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: "<think>private reasoning</think><final>Un paisaje</final>" }] } }],
+      choices: [{ message: { content: "<think>private reasoning</think><final>Hola</final>" } }],
     }), { status: 200 });
   }) as typeof fetch;
 
-  const messages: RouterChatMessage[] = [{
-    role: "user",
-    content: [
-      { type: "text", text: "¿Qué aparece?" },
-      { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
-    ],
-  }];
-  const result = await createProviderCompletion(provider("gemini"), messages, options);
-  const contents = requestBodies[0]?.contents as Array<{ parts: Array<Record<string, any>> }>;
+  const messages: RouterChatMessage[] = [{ role: "user", content: "Respondé." }];
+  const result = await createRouterCompletion("chat", messages, options);
 
-  assert.equal(result, "Un paisaje");
-  assert.deepEqual(contents[0].parts[1].inlineData, {
-    mimeType: "image/png",
-    data: "aGVsbG8=",
+  assert.equal(result, "Hola");
+  assert.equal(requestUrl, "https://router.example.test/api/v1/chat/completions");
+  assert.equal(requestHeaders?.get("authorization"), "Bearer local-test-app-key");
+  assert.deepEqual(requestBody, {
+    task_type: "chat",
+    messages,
+    max_tokens: 512,
+    stream: false,
   });
 });
 
+test("JSON mode adds an instruction instead of provider-specific request fields", async () => {
+  process.env.ROUTER_URL = "https://router.example.test";
+  process.env.ROUTER_APP_KEY = "local-test-app-key";
+  let requestBody: Record<string, any> | undefined;
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "{\"ok\":true}" } }],
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  await createRouterCompletion(
+    "reasoning",
+    [{ role: "user", content: "Devolvé JSON." }],
+    { maxTokens: 200, jsonMode: true },
+  );
+
+  assert.equal(requestBody?.response_format, undefined);
+  assert.equal(requestBody?.model, undefined);
+  assert.equal(requestBody?.messages[0].role, "system");
+  assert.match(requestBody?.messages[0].content, /objeto JSON válido/);
+});
+
+test("Router health check never sends a prompt or an authorization token", async () => {
+  process.env.ROUTER_URL = "https://router.example.test";
+  process.env.ROUTER_APP_KEY = "local-test-app-key";
+  let requestUrl = "";
+  let requestInit: RequestInit | undefined;
+
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input);
+    requestInit = init;
+    return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+  }) as typeof fetch;
+
+  const status = await testRouterConnection("chat");
+
+  assert.equal(requestUrl, "https://router.example.test/api/healthz");
+  assert.equal(requestInit?.method, "GET");
+  assert.equal(new Headers(requestInit?.headers).has("authorization"), false);
+  assert.equal(requestInit?.body, undefined);
+  assert.equal(status.configured, true);
+  assert.equal(status.connected, true);
+  assert.match(status.message ?? "", /No se consultaron modelos ni providers/);
+});
+
+test("reports Router availability separately from missing completion credentials", async () => {
+  process.env.ROUTER_URL = "https://router.example.test";
+  delete process.env.ROUTER_APP_KEY;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ status: "ok" }), { status: 200 })) as typeof fetch;
+
+  const status = await testRouterConnection("chat");
+
+  assert.equal(status.configured, false);
+  assert.equal(status.connected, true);
+  assert.match(status.message ?? "", /falta.*ROUTER_APP_KEY/i);
+});
+
 test("does not expose an upstream error body", async () => {
+  process.env.ROUTER_URL = "https://router.example.test";
+  process.env.ROUTER_APP_KEY = "local-test-app-key";
   globalThis.fetch = (async () => new Response(
-    JSON.stringify({ error: { message: "sensitive upstream details" } }),
+    JSON.stringify({ error: { message: "private upstream error body" } }),
     { status: 401 },
   )) as typeof fetch;
 
   await assert.rejects(
-    createProviderCompletion(
-      provider("openai"),
-      [{ role: "user", content: "Respondé." }],
-      options,
-    ),
-    { message: "Provider returned HTTP 401." },
+    createRouterCompletion("chat", [{ role: "user", content: "Respondé." }], options),
+    { message: "Router IA respondió con HTTP 401." },
   );
 });

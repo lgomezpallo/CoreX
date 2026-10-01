@@ -669,6 +669,39 @@ export interface RouterConnectionTestInput {
   task_type: RouterConnectionTestInputTaskType;
 }
 
+export type PrismaChatMessageRole = typeof PrismaChatMessageRole[keyof typeof PrismaChatMessageRole];
+
+
+export const PrismaChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface PrismaChatMessage {
+  role: PrismaChatMessageRole;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  content: string;
+}
+
+export interface PrismaChatRequest {
+  /**
+     * @minItems 1
+     * @maxItems 60
+     */
+  messages: PrismaChatMessage[];
+}
+
+export interface PrismaChatResponse {
+  /**
+     * @minLength 1
+     * @maxLength 8000
+     */
+  message: string;
+}
+
 export type RouterProviderKind = typeof RouterProviderKind[keyof typeof RouterProviderKind];
 
 

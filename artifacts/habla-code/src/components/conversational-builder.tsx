@@ -660,7 +660,7 @@ function AssemblyPanel({
   );
 }
 
-function ConversationalBuilder() {
+function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) {
   const { user, previewMode } = useAuthenticatedUser();
   const [routerSettingsOpen, setRouterSettingsOpen] = useState(false);
   const [projectCollection, setProjectCollection] = useState<BuilderProjectCollection>(
@@ -2207,6 +2207,17 @@ function ConversationalBuilder() {
           </nav>
         )}
         <div className="builder-topbar-right">
+          {onOpenPrisma && (
+            <button
+              type="button"
+              className="builder-settings-button"
+              onClick={onOpenPrisma}
+              aria-label="Abrir el módulo Prisma"
+              data-testid="button-open-prisma"
+            >
+              Prisma
+            </button>
+          )}
           <div className={`builder-save-status is-${saveStatus}`} aria-live="polite">
             {saveStatus === "saved" ? <Check size={14} /> : saveStatus === "saving" ? <LoaderCircle size={14} className="builder-spin" /> : saveStatus === "preview" ? <Globe size={14} /> : <CircleHelp size={14} />}
             <span>{saveStatus === "saved" ? "Guardado en la nube" : saveStatus === "saving" ? "Guardando" : saveStatus === "preview" ? "Vista previa, sin guardar" : "No se pudo sincronizar"}</span>

@@ -406,8 +406,6 @@ export async function generateBlueprintInTasks(input: BuilderGenerationInput) {
     planningTaskType,
     buildPlannerMessages(input),
     { maxTokens: 1_800, jsonMode: true },
-    input.userId,
-    input.accessToken,
   );
   const plan = parsePlan(planContent);
 
@@ -428,8 +426,6 @@ export async function generateBlueprintInTasks(input: BuilderGenerationInput) {
       sectionTaskType,
       buildSectionMessages(plannedSection, input, referenceSummary),
       { maxTokens: 1_200, jsonMode: true },
-      input.userId,
-      input.accessToken,
     );
     const items = parseItems(content, plannedSection.id);
 

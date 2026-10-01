@@ -1,269 +1,218 @@
-import {
-  normalizeBaseUrl,
-  providerConfigs,
-  type RouterProviderConfig,
-} from "./router-providers";
+import type { RouterTaskType } from "@workspace/api-zod";
+export type { RouterTaskType } from "@workspace/api-zod";
 
-export const ROUTER_TASK_TYPES = [
-  "chat",
-  "coding",
-  "reasoning",
-  "summarization",
-  "vision",
-  "document",
-] as const;
+const DEFAULT_ROUTER_URL = "https://router-ia.luisgomezpallo.workers.dev";
+const HEALTH_TIMEOUT_MS = 5_000;
+const COMPLETION_TIMEOUT_MS = 120_000;
 
-export type RouterTaskType = (typeof ROUTER_TASK_TYPES)[number];
-
-type RouterTextContent = {
-  type: "text";
-  text: string;
+export type RouterChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } }
+  >;
 };
-
-type RouterImageContent = {
-  type: "image_url";
-  image_url: {
-    url: string;
-    detail?: "auto" | "low" | "high";
-  };
-};
-
-export type RouterChatMessage =
-  | { role: "system" | "assistant"; content: string }
-  | { role: "user"; content: string | Array<RouterTextContent | RouterImageContent> };
 
 export type CompletionOptions = {
   maxTokens: number;
   jsonMode: boolean;
 };
 
-const REQUEST_TIMEOUT_MS = 120_000;
+type RouterHealthState = {
+  connected: boolean;
+  lastTestAt: string | null;
+  lastLatencyMs: number | null;
+  message: string | null;
+};
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+let healthState: RouterHealthState = {
+  connected: false,
+  lastTestAt: null,
+  lastLatencyMs: null,
+  message: null,
+};
+
+function routerBaseUrl(): string {
+  const configuredUrl = process.env.ROUTER_URL?.trim() || DEFAULT_ROUTER_URL;
+  let parsed: URL;
+
+  try {
+    parsed = new URL(configuredUrl);
+  } catch {
+    throw new Error("ROUTER_URL no es una URL válida.");
+  }
+
+  if (
+    !["https:", "http:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error("ROUTER_URL debe ser una URL base HTTP(S) sin ruta, credenciales ni parámetros.");
+  }
+
+  return parsed.origin;
+}
+
+function routerAppKey(): string | null {
+  const appKey = process.env.ROUTER_APP_KEY?.trim();
+  return appKey || null;
+}
+
+function configurationMessage(): string | null {
+  try {
+    routerBaseUrl();
+  } catch (error) {
+    return error instanceof Error ? error.message : "La URL de Router IA no es válida.";
+  }
+
+  return routerAppKey()
+    ? null
+    : "Falta configurar ROUTER_APP_KEY en el servidor para habilitar las solicitudes.";
 }
 
 function finalModelText(value: string): string {
-  let text = value;
-  for (const tag of ["think", "analysis", "reasoning"]) {
-    text = text.replace(
-      new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "gi"),
-      "",
-    );
-  }
-  const finalBlock = /<(?:final|answer)\b[^>]*>([\s\S]*?)<\/(?:final|answer)\s*>/i.exec(text);
-  if (finalBlock) text = finalBlock[1];
-  if (/<(?:think|analysis|reasoning)\b/i.test(text)) {
-    throw new Error("El proveedor devolvió etiquetas de razonamiento sin una respuesta final.");
-  }
-  const result = text.trim();
-  if (!result) throw new Error("Router IA devolvió una respuesta vacía.");
-  return result;
+  const finalMatch = value.match(/<final>([\s\S]*?)<\/final>/i);
+  if (finalMatch) return finalMatch[1].trim();
+  return value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
-function extractOpenAiContent(payload: unknown): string {
-  if (!isRecord(payload) || !Array.isArray(payload.choices)) {
-    throw new Error("Router IA devolvió una respuesta con formato inesperado.");
+function extractCompletionText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Router IA devolvió una respuesta no válida.");
   }
-  const choice = payload.choices[0];
-  if (!isRecord(choice) || !isRecord(choice.message)) {
-    throw new Error("Router IA no devolvió un mensaje.");
+
+  const choices = (payload as {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  }).choices;
+  const content = choices?.[0]?.message?.content;
+  if (typeof content !== "string") {
+    throw new Error("Router IA no devolvió texto.");
   }
-  const content = choice.message.content;
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Router IA devolvió una respuesta vacía.");
-  }
-  return finalModelText(content);
+
+  const text = finalModelText(content);
+  if (!text) throw new Error("Router IA devolvió una respuesta vacía.");
+  return text;
 }
 
-function parseDataImage(url: string): { mimeType: string; data: string } | null {
-  const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(url);
-  return match ? { mimeType: match[1].toLowerCase(), data: match[2] } : null;
+function jsonModeMessages(messages: RouterChatMessage[]): RouterChatMessage[] {
+  const instruction =
+    "Respondé únicamente con un objeto JSON válido, sin bloques Markdown ni texto adicional.";
+  const firstSystemIndex = messages.findIndex((message) => message.role === "system");
+  if (firstSystemIndex < 0) {
+    return [{ role: "system", content: instruction }, ...messages];
+  }
+
+  return messages.map((message, index) =>
+    index === firstSystemIndex && typeof message.content === "string"
+      ? { ...message, content: `${message.content}\n\n${instruction}` }
+      : message,
+  );
 }
 
-function anthropicContent(content: RouterChatMessage["content"]): string | Array<Record<string, unknown>> {
-  if (typeof content === "string") return content;
-  return content.map((part) => {
-    if (part.type === "text") return { type: "text", text: part.text };
-    const inlineImage = parseDataImage(part.image_url.url);
-    if (inlineImage) {
-      return {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: inlineImage.mimeType,
-          data: inlineImage.data,
-        },
-      };
+export function getRouterStatus() {
+  const configurationError = configurationMessage();
+  return {
+    configured: configurationError === null,
+    connected: healthState.connected,
+    lastTestAt: healthState.lastTestAt,
+    lastLatencyMs: healthState.lastLatencyMs,
+    message: configurationError ?? healthState.message,
+  };
+}
+
+/**
+ * Checks only the Router health endpoint. It never sends a prompt or contacts
+ * a model/provider, so this check cannot trigger an inference charge.
+ */
+export async function testRouterConnection(_taskType: RouterTaskType) {
+  const startedAt = Date.now();
+  const testedAt = new Date().toISOString();
+
+  try {
+    const response = await fetch(new URL("/api/healthz", routerBaseUrl()), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      redirect: "error",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Router IA respondió con HTTP ${response.status}.`);
     }
-    if (!part.image_url.url.startsWith("https://")) {
-      throw new Error("Anthropic image URLs must use HTTPS or an image data URL.");
-    }
-    return {
-      type: "image",
-      source: { type: "url", url: part.image_url.url },
+
+    healthState = {
+      connected: true,
+      lastTestAt: testedAt,
+      lastLatencyMs: Math.max(0, Date.now() - startedAt),
+      message: routerAppKey()
+        ? "Router IA está disponible. No se consultaron modelos ni providers."
+        : "Router IA está disponible; falta ROUTER_APP_KEY para enviar solicitudes.",
     };
-  });
-}
-
-function geminiParts(content: RouterChatMessage["content"]): Array<Record<string, unknown>> {
-  if (typeof content === "string") return [{ text: content }];
-  return content.map((part) => {
-    if (part.type === "text") return { text: part.text };
-    const image = parseDataImage(part.image_url.url);
-    if (!image) {
-      throw new Error("Gemini necesita imágenes adjuntas en formato base64; se intentará otro proveedor.");
-    }
-    return { inlineData: { mimeType: image.mimeType, data: image.data } };
-  });
-}
-
-function safeProviderError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "";
-  const httpStatus = /Provider returned HTTP \d+\./.exec(message);
-  if (httpStatus) return httpStatus[0];
-  if (message.startsWith("Gemini necesita imágenes") ||
-      message.startsWith("Anthropic image URLs")) {
-    return message;
-  }
-  if (message.startsWith("El proveedor")) return message;
-  return "No se pudo conectar con el proveedor.";
-}
-
-export async function createProviderCompletion(
-  provider: RouterProviderConfig,
-  messages: RouterChatMessage[],
-  options: CompletionOptions,
-): Promise<string> {
-  const system = messages
-    .filter((message) => message.role === "system")
-    .map((message) => message.content)
-    .join("\n");
-  const conversational = messages.filter((message) => message.role !== "system");
-
-  if (provider.kind === "anthropic") {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": provider.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        max_tokens: options.maxTokens,
-        ...(system ? { system } : {}),
-        messages: conversational.map((message) => ({
-          role: message.role === "assistant" ? "assistant" : "user",
-          content: anthropicContent(message.content),
-        })),
-      }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      redirect: "error",
-    });
-    if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}.`);
-    const payload = await response.json() as Record<string, unknown>;
-    const text = Array.isArray(payload.content)
-      ? payload.content
-        .filter(isRecord)
-        .map((part) => typeof part.text === "string" ? part.text : "")
-        .join("")
-        .trim()
-      : "";
-    return finalModelText(text);
+  } catch (error) {
+    healthState = {
+      connected: false,
+      lastTestAt: testedAt,
+      lastLatencyMs: Math.max(0, Date.now() - startedAt),
+      message: error instanceof Error
+        ? error.message.slice(0, 220)
+        : "No se pudo comprobar la disponibilidad de Router IA.",
+    };
   }
 
-  if (provider.kind === "gemini") {
-    const endpoint = new URL(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(provider.model)}:generateContent`,
-    );
-    endpoint.searchParams.set("key", provider.apiKey);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-        contents: conversational.map((message) => ({
-          role: message.role === "assistant" ? "model" : "user",
-          parts: geminiParts(message.content),
-        })),
-        generationConfig: {
-          maxOutputTokens: options.maxTokens,
-          ...(options.jsonMode ? { responseMimeType: "application/json" } : {}),
-        },
-      }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      redirect: "error",
-    });
-    if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}.`);
-    const payload = await response.json() as Record<string, unknown>;
-    const candidate = Array.isArray(payload.candidates) ? payload.candidates[0] : null;
-    const content = isRecord(candidate) && isRecord(candidate.content) ? candidate.content : null;
-    const text = content && Array.isArray(content.parts)
-      ? content.parts
-        .filter(isRecord)
-        .map((part) => typeof part.text === "string" ? part.text : "")
-        .join("")
-        .trim()
-      : "";
-    return finalModelText(text);
-  }
-
-  const base = provider.kind === "openai"
-    ? "https://api.openai.com/v1"
-    : provider.kind === "groq"
-      ? "https://api.groq.com/openai/v1"
-      : provider.baseUrl
-        ? normalizeBaseUrl(provider.baseUrl)
-        : null;
-  if (!base) throw new Error("El proveedor no tiene una URL válida.");
-
-  const response = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${provider.apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      messages,
-      max_tokens: options.maxTokens,
-      ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
-    }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    redirect: "error",
-  });
-  if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}.`);
-  return extractOpenAiContent(await response.json());
+  return getRouterStatus();
 }
 
+/**
+ * Routes all CoreX model requests through the separately hosted Router IA.
+ * The Supabase user token is intentionally not accepted or forwarded here;
+ * Router authentication uses only its server-side app key.
+ */
 export async function createRouterCompletion(
   taskType: RouterTaskType,
   messages: RouterChatMessage[],
   options: CompletionOptions,
-  userId: string,
-  accessToken: string,
 ): Promise<string> {
-  if (!userId.trim() || !accessToken.trim()) {
-    throw new Error("No hay una identidad autenticada para Router IA.");
-  }
-  const providers = (await providerConfigs(accessToken))
-    .filter((provider) =>
-      provider.capabilities.includes(taskType) ||
-      provider.capabilities.includes("chat"),
-    )
-    .slice(0, 3);
-  if (!providers.length) {
-    throw new Error("No hay proveedores activos para esta tarea y esta cuenta.");
+  const baseUrl = routerBaseUrl();
+  const appKey = routerAppKey();
+  if (!appKey) {
+    throw new Error("Router IA no está configurado: falta ROUTER_APP_KEY en el servidor.");
   }
 
-  let lastError = "No se pudo conectar con el proveedor.";
-  for (const provider of providers) {
-    try {
-      return await createProviderCompletion(provider, messages, options);
-    } catch (error) {
-      lastError = safeProviderError(error);
-    }
+  const requestMessages = options.jsonMode ? jsonModeMessages(messages) : messages;
+  let response: Response;
+  try {
+    response = await fetch(new URL("/api/v1/chat/completions", baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${appKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        task_type: taskType,
+        messages: requestMessages,
+        max_tokens: options.maxTokens,
+        stream: false,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(COMPLETION_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error("No se pudo conectar con Router IA.");
   }
-  throw new Error(`Fallaron los proveedores configurados: ${lastError}`);
+
+  if (!response.ok) {
+    throw new Error(`Router IA respondió con HTTP ${response.status}.`);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Router IA devolvió una respuesta no válida.");
+  }
+
+  return extractCompletionText(payload);
 }

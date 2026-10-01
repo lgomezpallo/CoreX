@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Beaker, Blocks, FolderKanban, Settings2 } from "lucide-react";
 import ConversationalBuilder from "@/components/conversational-builder";
 import { AuthGate } from "@/components/auth-gate";
+import { PrismaChat } from "@/components/prisma-chat";
 import { ProjectHub } from "@/components/project-hub";
 import { RouterSettings } from "@/components/router-settings";
 import type { BuilderProject } from "@/lib/builder-workspace";
@@ -13,6 +14,8 @@ type MainSection = "builder" | "projects" | "lab";
 function CoreXWorkspace() {
   const [section, setSection] = useState<MainSection>("builder");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeModule, setActiveModule] = useState<"corex" | "prisma">("corex");
+  const prismaEnabled = import.meta.env.VITE_ENABLE_PRISMA_CHAT === "true";
 
   useEffect(() => {
     if (section === "projects") return;
@@ -50,6 +53,7 @@ function CoreXWorkspace() {
   }, [section]);
 
   const openProject = (project: BuilderProject) => {
+    setActiveModule("corex");
     setSection(project.mode === "lab" ? "lab" : "builder");
   };
 
@@ -60,7 +64,7 @@ function CoreXWorkspace() {
         <button
           type="button"
           className={!settingsOpen && section === "builder" ? "is-active" : ""}
-          onClick={() => { setSettingsOpen(false); setSection("builder"); }}
+          onClick={() => { setSettingsOpen(false); setSection("builder"); setActiveModule("corex"); }}
           data-testid="nav-builder"
         >
           <Blocks size={14} /> Builder
@@ -68,7 +72,7 @@ function CoreXWorkspace() {
         <button
           type="button"
           className={!settingsOpen && section === "projects" ? "is-active" : ""}
-          onClick={() => { setSettingsOpen(false); setSection("projects"); }}
+          onClick={() => { setSettingsOpen(false); setSection("projects"); setActiveModule("corex"); }}
           data-testid="nav-projects"
         >
           <FolderKanban size={14} /> Proyectos
@@ -76,7 +80,7 @@ function CoreXWorkspace() {
         <button
           type="button"
           className={!settingsOpen && section === "lab" ? "is-active" : ""}
-          onClick={() => { setSettingsOpen(false); setSection("lab"); }}
+          onClick={() => { setSettingsOpen(false); setSection("lab"); setActiveModule("corex"); }}
           data-testid="nav-laboratory"
         >
           <Beaker size={14} /> Laboratorio
@@ -94,7 +98,11 @@ function CoreXWorkspace() {
       <div className="corex-app-content">
         {section === "projects"
           ? <ProjectHub onOpenProject={openProject} />
-          : <ConversationalBuilder />}
+          : activeModule === "prisma" && prismaEnabled && section === "builder"
+            ? <PrismaChat onBack={() => setActiveModule("corex")} />
+            : <ConversationalBuilder
+                onOpenPrisma={prismaEnabled ? () => setActiveModule("prisma") : undefined}
+              />}
       </div>
 
       <RouterSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />

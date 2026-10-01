@@ -471,18 +471,19 @@ paths:
       operationId: testRouterProvider
       tags: [router]
       security: [{ bearerAuth: [] }]
+      deprecated: true
       responses:
-        "200":
-          description: Provider test result
+        "410":
+          description: Direct provider inference is disabled in CoreX
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/RouterProviderTestResult" }
+              schema: { $ref: "#/components/schemas/ApiError" }
   /router/test:
     post:
       operationId: testRouterConnection
       tags: [router]
       security: [{ bearerAuth: [] }]
-      summary: Test the Router IA connection
+      summary: Check Router IA health without invoking a model
       requestBody:
         required: true
         content:
@@ -491,13 +492,62 @@ paths:
               $ref: "#/components/schemas/RouterConnectionTestInput"
       responses:
         "200":
-          description: Connection status after a real Router IA request
+          description: Router IA health status; no prompt or provider inference is sent
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RouterConnectionStatus"
         "400":
           description: Invalid Router test request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /prisma/chat:
+    post:
+      operationId: sendPrismaChat
+      tags: [prisma]
+      security: [{ bearerAuth: [] }]
+      summary: Send a conversational message through Router IA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrismaChatRequest"
+      responses:
+        "200":
+          description: Assistant response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrismaChatResponse"
+        "400":
+          description: Invalid chat request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Prisma module is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Per-user message limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Router IA request failed
           content:
             application/json:
               schema:
@@ -1184,6 +1234,35 @@ components:
           type: string
           enum: [chat]
       required: [task_type]
+    PrismaChatMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required: [role, content]
+    PrismaChatRequest:
+      type: object
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 60
+          items:
+            $ref: "#/components/schemas/PrismaChatMessage"
+      required: [messages]
+    PrismaChatResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 8000
+      required: [message]
     RouterProvider:
       type: object
       properties:
